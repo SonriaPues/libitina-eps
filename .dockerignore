@@ -1,0 +1,8 @@
+# Solo afecta al Gateway, que se construye desde la raíz del repositorio
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.env
+.git
+infra/backup/respaldos

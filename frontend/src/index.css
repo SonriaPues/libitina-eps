@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { scroll-behavior: smooth; }
+  body { @apply bg-white font-sans text-azul-900 antialiased; }
+  h1, h2, h3, h4 { @apply font-display; }
+  :focus-visible { @apply outline-none ring-4 ring-azul-100 ring-offset-1; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+}
+
+@layer components {
+  .contenedor { @apply mx-auto w-full max-w-sitio px-5 md:px-10; }
+  .campo { @apply h-12 w-full rounded-[10px] border-[1.5px] border-azul-200 bg-white px-3.5 text-[15px] text-azul-900 placeholder:text-azul-300 focus:border-azul-600 focus:ring-4 focus:ring-azul-100; }
+  .etiqueta { @apply text-sm font-semibold text-azul-800; }
+  .antetitulo { @apply text-[13px] font-semibold tracking-[2px] text-dorado-600; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-[15px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60; }
+  .btn-primario { @apply btn bg-azul-600 text-white hover:bg-azul-700; }
+  .btn-dorado { @apply btn bg-dorado-400 font-bold text-azul-950 hover:bg-dorado-300; }
+  .btn-borde { @apply btn border-[1.5px] border-azul-600 text-azul-600 hover:bg-azul-50; }
+  .btn-borde-claro { @apply btn border-[1.5px] border-azul-400 text-white hover:bg-azul-800; }
+  .tarjeta { @apply rounded-[20px] border border-azul-100 bg-white; }
+}

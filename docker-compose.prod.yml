@@ -1,0 +1,56 @@
+# =====================================================================
+# PRODUCCIÓN · máquina virtual de Azure
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# (el script infra/servidor/desplegar.sh lo hace por ti)
+#
+# Solo Nginx queda expuesto (80 y 443). El Gateway, los servicios y las bases
+# viven en redes internas sin puertos abiertos.
+# =====================================================================
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [gateway]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO en .env (ej. libitina-eps.eastus.cloudapp.azure.com)}
+    volumes:
+      - ./infra/nginx/libitina.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - certbot-web:/var/www/certbot:ro
+      - certificados:/etc/letsencrypt:ro
+    # Recarga Nginx cada 12 h para tomar el certificado renovado
+    command: /bin/sh -c 'while :; do sleep 12h; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g "daemon off;"'
+    networks: [publica]
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - certbot-web:/var/www/certbot
+      - certificados:/etc/letsencrypt
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+    networks: [publica]
+
+  respaldos:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGUSER: ${POSTGRES_SUPERUSUARIO}
+      CLAVE_GENERAL: ${POSTGRES_SUPERCLAVE}
+      CLAVE_CLINICA: ${POSTGRES_SUPERCLAVE_CLINICA}
+      HORA_RESPALDO: ${HORA_RESPALDO:-02}
+    volumes:
+      - ./infra/respaldos:/scripts:ro
+      - respaldos:/respaldos
+    entrypoint: ["/bin/sh", "/scripts/programar.sh"]
+    networks: [datos, clinica]
+    depends_on: { db-general: { condition: service_healthy }, db-clinica: { condition: service_healthy } }
+
+  notificaciones-worker:
+    environment:
+      SMTP_HOST: ${SMTP_HOST:?En producción configura un servidor SMTP real (Gmail) en .env}
+
+volumes:
+  certbot-web:
+  certificados:
+  respaldos:

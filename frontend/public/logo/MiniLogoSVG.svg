@@ -1,0 +1,24 @@
+<svg id="logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+                <defs>
+                    <!-- Colores de la marca -->
+                    <style>
+                        .azul-primario { fill: #003366; }
+                        .dorado-secundario { fill: #F6C220; }
+                        .trazo-blanco { stroke: #ffffff; stroke-width: 10; stroke-linejoin: round; }
+                    </style>
+                </defs>
+                
+                <g transform="translate(10, -20)">
+                    <!-- Letra L (Slab Serif Clásica) -->
+                    <path class="azul-primario" d="&#10;                        M 130 110 &#10;                        H 210 &#10;                        V 140 &#10;                        H 180 &#10;                        V 330 &#10;                        H 330 &#10;                        V 280 &#10;                        H 360 &#10;                        V 360 &#10;                        H 130 &#10;                        V 330 &#10;                        H 150 &#10;                        V 140 &#10;                        H 130 &#10;                        Z"/>
+
+                    <!-- Silueta de la Loba Aullando (Intercalada con la L) -->
+                    <!-- Se utiliza un borde blanco para crear el efecto de recorte/interlineado -->
+                    <path class="dorado-secundario trazo-blanco" d="&#10;                        M 160 330 &#10;                        C 180 230, 210 180, 240 150 &#10;                        L 255 80 &#10;                        L 280 120 &#10;                        C 320 100, 360 70, 410 50 &#10;                        L 390 85 &#10;                        C 360 105, 345 125, 335 145 &#10;                        C 305 210, 290 270, 290 330 &#10;                        Z"/>
+                </g>
+
+                <!-- Tipografía LIBITINA EPS -->
+                <text x="250" y="450" font-family="'Arial', sans-serif" font-size="42" font-weight="900" fill="#003366" text-anchor="middle" letter-spacing="1">
+                    LIBITINA <tspan fill="#F6C220">EPS</tspan>
+                </text>
+            </svg>

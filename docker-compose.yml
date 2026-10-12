@@ -1,0 +1,194 @@
+# =====================================================================
+# Libitina EPS · Arquitectura de microservicios
+#
+#   Desarrollo (tu computador):  docker compose up --build
+#     -> carga también docker-compose.override.yml (puertos locales y Mailpit)
+#   Producción (Azure):           docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#     -> agrega Nginx con HTTPS, certbot y respaldos; no abre puertos internos
+#
+# Redes: publica (gateway) · interna (servicios y Redis) · datos (PostgreSQL general)
+#        · clinica (PostgreSQL clínico, solo Historia Clínica)
+# Mínimo privilegio: cada contenedor recibe solo las variables que necesita.
+# =====================================================================
+
+x-servicio: &servicio
+  restart: unless-stopped
+  networks: [interna, datos]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  tmpfs: [/tmp]
+
+x-comunes: &comunes
+  JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+  INTERNAL_TOKEN: ${INTERNAL_TOKEN:?Falta INTERNAL_TOKEN en .env}
+  REDIS_URL: redis://redis:6379/0
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+
+services:
+  # ---------------- Bases de datos ----------------
+  db-general:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSUARIO:?Falta POSTGRES_SUPERUSUARIO}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERCLAVE:?Falta POSTGRES_SUPERCLAVE}
+      SVC_AUTH_PASSWORD: ${SVC_AUTH_PASSWORD:?}
+      SVC_AFILIADOS_PASSWORD: ${SVC_AFILIADOS_PASSWORD:?}
+      SVC_PRESTADORES_PASSWORD: ${SVC_PRESTADORES_PASSWORD:?}
+      SVC_NOTIFICACIONES_PASSWORD: ${SVC_NOTIFICACIONES_PASSWORD:?}
+      SVC_TRAMITES_PASSWORD: ${SVC_TRAMITES_PASSWORD:?}
+      SVC_CITAS_PASSWORD: ${SVC_CITAS_PASSWORD:?}
+    volumes:
+      - datos-general:/var/lib/postgresql/data
+      - ./bases/general/00_init.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
+      - ./bases/esquemas:/esquemas:ro
+    networks: [datos]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      retries: 20
+
+  db-clinica:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSUARIO:?}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERCLAVE_CLINICA:?Falta POSTGRES_SUPERCLAVE_CLINICA}
+      SVC_HISTORIA_PASSWORD: ${SVC_HISTORIA_PASSWORD:?}
+    volumes:
+      - datos-clinica:/var/lib/postgresql/data
+      - ./bases/clinica/00_init.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
+      - ./bases/esquemas:/esquemas:ro
+    networks: [clinica]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      retries: 20
+
+  # ---------------- Mensajería ----------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    networks: [interna]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  # ---------------- Microservicios ----------------
+  auth:
+    <<: *servicio
+    build: ./services/auth
+    environment:
+      <<: *comunes
+      DATABASE_URL: postgresql+psycopg://svc_auth:${SVC_AUTH_PASSWORD}@db-general:5432/libitina_auth
+      JWT_MINUTOS: ${JWT_MINUTOS:-30}
+      REFRESH_DIAS: ${REFRESH_DIAS:-7}
+      ADMIN_CORREO: ${ADMIN_CORREO:-admin@libitina.co}
+      ADMIN_CLAVE: ${ADMIN_CLAVE:?Falta ADMIN_CLAVE}
+      ADMIN_DOCUMENTO: ${ADMIN_DOCUMENTO:-1000000000}
+    depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
+
+  prestadores:
+    <<: *servicio
+    build: ./services/prestadores
+    environment:
+      DATABASE_URL: postgresql+psycopg://svc_prestadores:${SVC_PRESTADORES_PASSWORD}@db-general:5432/libitina_prestadores
+    depends_on: { db-general: { condition: service_healthy } }
+
+  afiliados:
+    <<: *servicio
+    build: ./services/afiliados
+    environment:
+      <<: *comunes
+      DATABASE_URL: postgresql+psycopg://svc_afiliados:${SVC_AFILIADOS_PASSWORD}@db-general:5432/libitina_afiliados
+      AUTH_URL: http://auth:8000
+      PRESTADORES_URL: http://prestadores:8000
+    depends_on:
+      db-general: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      auth: { condition: service_started }
+      prestadores: { condition: service_started }
+
+  notificaciones:
+    <<: *servicio
+    build: ./services/notificaciones
+    environment:
+      DATABASE_URL: postgresql+psycopg://svc_notificaciones:${SVC_NOTIFICACIONES_PASSWORD}@db-general:5432/libitina_notificaciones
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on: { db-general: { condition: service_healthy } }
+
+  notificaciones-worker:
+    <<: *servicio
+    build: ./services/notificaciones
+    command: celery -A app.worker worker --loglevel=info --concurrency=2
+    networks: [interna, datos, salida]   # único servicio que sale a internet (servidor de correo)
+    environment:
+      DATABASE_URL: postgresql+psycopg://svc_notificaciones:${SVC_NOTIFICACIONES_PASSWORD}@db-general:5432/libitina_notificaciones
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_CLAVE: ${SMTP_CLAVE:-}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-Libitina EPS <no-responder@libitina.co>}
+    depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
+
+  # Próxima entrega: base completa y endpoint /health
+  historia:
+    <<: *servicio
+    build: ./services/pendiente
+    networks: [interna, clinica]          # solo este servicio llega al servidor clínico
+    environment:
+      SERVICIO: historia
+      DATABASE_URL: postgresql+psycopg://svc_historia:${SVC_HISTORIA_PASSWORD}@db-clinica:5432/libitina_historia
+    depends_on: { db-clinica: { condition: service_healthy } }
+
+  tramites:
+    <<: *servicio
+    build: ./services/pendiente
+    environment:
+      SERVICIO: tramites
+      DATABASE_URL: postgresql+psycopg://svc_tramites:${SVC_TRAMITES_PASSWORD}@db-general:5432/libitina_tramites
+    depends_on: { db-general: { condition: service_healthy } }
+
+  citas:
+    <<: *servicio
+    build: ./services/pendiente
+    environment:
+      SERVICIO: citas
+      DATABASE_URL: postgresql+psycopg://svc_citas:${SVC_CITAS_PASSWORD}@db-general:5432/libitina_citas
+    depends_on: { db-general: { condition: service_healthy } }
+
+  # ---------------- Punto de entrada único (API + front compilado) ----------------
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      LIMITE_POR_MINUTO: ${LIMITE_POR_MINUTO:-120}
+      LIMITE_SENSIBLE_POR_MINUTO: ${LIMITE_SENSIBLE_POR_MINUTO:-10}
+    networks: [publica, interna]
+    depends_on: [auth, afiliados, prestadores, notificaciones, historia, tramites, citas]
+
+networks:
+  publica:
+  salida:
+  interna:
+    internal: true      # sin salida a internet
+  datos:
+    internal: true
+  clinica:
+    internal: true
+
+volumes:
+  datos-general:
+  datos-clinica:

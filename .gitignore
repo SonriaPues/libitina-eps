@@ -1,0 +1,11 @@
+# Secretos: nunca se suben
+.env
+*.pem
+
+# Dependencias y compilados
+node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+.venv/
+venv/

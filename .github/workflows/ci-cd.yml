@@ -1,0 +1,90 @@
+name: Pruebas y despliegue
+
+# En cada push y pull request: compila el front, levanta TODO el sistema con
+# Docker Compose (7 microservicios, 2 PostgreSQL, Redis, worker y Mailpit) y
+# corre la prueba de punta a punta del flujo de afiliación.
+# Solo si pasa, y solo en main, despliega en la máquina de Azure por SSH.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  front:
+    name: Front (compilación)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: npm ci
+      - run: npm run build
+        env: { VITE_USE_MOCK: "false", VITE_API_URL: /api/v1 }
+
+  sistema:
+    name: Sistema completo (prueba de punta a punta)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Crear .env de prueba con claves aleatorias
+        run: |
+          cp .env.example .env
+          for v in POSTGRES_SUPERCLAVE POSTGRES_SUPERCLAVE_CLINICA SVC_AUTH_PASSWORD SVC_AFILIADOS_PASSWORD SVC_PRESTADORES_PASSWORD \
+                   SVC_NOTIFICACIONES_PASSWORD SVC_TRAMITES_PASSWORD SVC_CITAS_PASSWORD SVC_HISTORIA_PASSWORD JWT_SECRET INTERNAL_TOKEN; do
+            sed -i "s|^$v=.*|$v=$(openssl rand -hex 24)|" .env
+          done
+
+      - name: Construir y levantar
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Prueba de punta a punta
+        run: |
+          pip install -q httpx==0.27.2
+          python pruebas/e2e.py http://localhost:8000 http://localhost:8025
+
+      - name: Aislamiento de bases (Citas no puede entrar a Afiliados)
+        run: |
+          CLAVE=$(grep '^SVC_CITAS_PASSWORD=' .env | cut -d= -f2)
+          docker compose exec -T -e PGPASSWORD="$CLAVE" db-general psql -h 127.0.0.1 -U svc_citas -d libitina_citas -c "select 1" >/dev/null \
+            || { echo "ERROR: svc_citas no pudo entrar a su propia base"; exit 1; }
+          if docker compose exec -T -e PGPASSWORD="$CLAVE" db-general psql -h 127.0.0.1 -U svc_citas -d libitina_afiliados -c "select 1"; then
+            echo "ERROR: svc_citas pudo conectarse a libitina_afiliados"; exit 1
+          fi
+          echo "Aislamiento correcto"
+
+      - name: Registros de los servicios (si algo falló)
+        if: failure()
+        run: docker compose logs --tail 80
+
+  desplegar:
+    name: Desplegar en Azure
+    needs: [front, sistema]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: produccion
+    steps:
+      - name: Revisar si el servidor está configurado
+        id: revisar
+        run: echo "listo=${{ secrets.AZURE_HOST != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Desplegar por SSH
+        if: steps.revisar.outputs.listo == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AZURE_HOST }}
+          username: ${{ secrets.AZURE_USUARIO }}
+          key: ${{ secrets.AZURE_LLAVE_SSH }}
+          command_timeout: 20m
+          script: /opt/libitina-eps/infra/servidor/desplegar.sh
+
+      - name: Servidor sin configurar
+        if: steps.revisar.outputs.listo != 'true'
+        run: echo "Aún no hay servidor (secreto AZURE_HOST vacío). Las pruebas pasaron; se omite el despliegue."
