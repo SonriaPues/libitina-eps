@@ -2,6 +2,7 @@ import logging
 from datetime import date, datetime, timezone
 from fastapi import FastAPI, Depends, HTTPException, Request, Query
 from sqlalchemy import select, func
+from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import config, clientes, reglas
@@ -38,7 +39,7 @@ def regimen_id(db: Session, codigo: str):
 
 def beneficiarios_de(db: Session, cotizante_id):
     return db.scalars(select(Afiliado).where(Afiliado.cotizante_id == cotizante_id, Afiliado.eliminado_en.is_(None))
-                      .order_by(Afiliado.creado_en)).all()
+                      .order_by(Afiliado.creado_en, Afiliado.apellidos, Afiliado.nombres, Afiliado.id)).all()
 
 
 def documento_ocupado(db: Session, tipo: str, numero: str, excepto=None) -> bool:
@@ -179,9 +180,12 @@ def reenviar(datos: ReenvioIn, token: dict = Depends(usuario_del_token), db: Ses
             db.add(Novedad(afiliado_id=ben.id, estado_nuevo="pendiente", motivo="Agregado al corregir la solicitud"))
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(409, "Uno de los documentos ya está registrado en Libitina EPS.")
+        if isinstance(e.orig, UniqueViolation):
+            raise HTTPException(409, "Uno de los documentos ya está registrado en Libitina EPS.")
+        log.exception("Reenvío rechazado por la base")
+        raise HTTPException(422, "Los datos de la solicitud no cumplen las reglas de afiliación. Revísalos e intenta de nuevo.")
     return afiliado_out(db, a)
 
 
