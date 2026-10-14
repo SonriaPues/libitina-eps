@@ -14,7 +14,9 @@ libitina-eps/
 │   ├── afiliados/            Afiliación, grupo familiar, aprobación y catálogos
 │   ├── prestadores/          Red de prestadores: IPS, puntos de atención, profesionales
 │   ├── notificaciones/       API de la campanita + worker de Celery que envía los correos
-│   └── pendiente/            Servicio mínimo de Historia Clínica, Trámites y Citas (próximas entregas)
+│   ├── tramites/             PQRSD, certificados, autorizaciones (base lista; endpoints en camino)
+│   ├── citas/                Agendas, citas y reservas de salas (base lista; endpoints en camino)
+│   └── historia/             Historia clínica cifrada y auditada (base lista; endpoints en camino)
 ├── frontend/                 Sitio público, inscripción, portal del afiliado y panel de administración
 ├── bases/                    Las 40 tablas: esquemas SQL y scripts que crean bases y usuarios
 ├── infra/

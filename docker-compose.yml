@@ -136,31 +136,38 @@ services:
       CORREO_REMITENTE: ${CORREO_REMITENTE:-Libitina EPS <no-responder@libitina.co>}
     depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
 
-  # Próxima entrega: base completa y endpoint /health
-  historia:
-    <<: *servicio
-    build: ./services/pendiente
-    networks: [interna, clinica]          # solo este servicio llega al servidor clínico
-    environment:
-      SERVICIO: historia
-      DATABASE_URL: postgresql+psycopg://svc_historia:${SVC_HISTORIA_PASSWORD}@db-clinica:5432/libitina_historia
-    depends_on: { db-clinica: { condition: service_healthy } }
-
+  # Base completa; sus endpoints llegan en las próximas entregas (ver ROADMAP.md)
   tramites:
     <<: *servicio
-    build: ./services/pendiente
+    build: ./services/tramites
     environment:
-      SERVICIO: tramites
       DATABASE_URL: postgresql+psycopg://svc_tramites:${SVC_TRAMITES_PASSWORD}@db-general:5432/libitina_tramites
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      AFILIADOS_URL: http://afiliados:8000
     depends_on: { db-general: { condition: service_healthy } }
 
   citas:
     <<: *servicio
-    build: ./services/pendiente
+    build: ./services/citas
     environment:
-      SERVICIO: citas
       DATABASE_URL: postgresql+psycopg://svc_citas:${SVC_CITAS_PASSWORD}@db-general:5432/libitina_citas
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      AFILIADOS_URL: http://afiliados:8000
+      PRESTADORES_URL: http://prestadores:8000
     depends_on: { db-general: { condition: service_healthy } }
+
+  historia:
+    <<: *servicio
+    build: ./services/historia
+    networks: [interna, clinica]          # solo este servicio llega al servidor clínico
+    environment:
+      DATABASE_URL: postgresql+psycopg://svc_historia:${SVC_HISTORIA_PASSWORD}@db-clinica:5432/libitina_historia
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      CLAVE_CIFRADO_HISTORIA: ${CLAVE_CIFRADO_HISTORIA:?Falta CLAVE_CIFRADO_HISTORIA en .env}
+    depends_on: { db-clinica: { condition: service_healthy } }
 
   # ---------------- Punto de entrada único (API + front compilado) ----------------
   gateway:
