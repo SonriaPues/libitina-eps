@@ -41,14 +41,24 @@ jobs:
                    SVC_NOTIFICACIONES_PASSWORD SVC_TRAMITES_PASSWORD SVC_CITAS_PASSWORD SVC_HISTORIA_PASSWORD JWT_SECRET INTERNAL_TOKEN CLAVE_CIFRADO_HISTORIA; do
             sed -i "s|^$v=.*|$v=$(openssl rand -hex 24)|" .env
           done
+          # Las pruebas inician sesión muchas veces seguidas: se sube el límite solo aquí
+          echo "LIMITE_SENSIBLE_POR_MINUTO=500" >> .env
 
       - name: Construir y levantar
         run: docker compose up -d --build --wait --wait-timeout 300
 
-      - name: Prueba de punta a punta
+      - name: Prueba de punta a punta · afiliación
         run: |
           pip install -q httpx==0.27.2
           python pruebas/e2e.py http://localhost:8000 http://localhost:8025
+
+      - name: Prueba de punta a punta · doctores, citas, historia, remisiones, certificados y PQRSD
+        run: |
+          CITAS=$(grep '^SVC_CITAS_PASSWORD=' .env | cut -d= -f2)
+          HISTORIA=$(grep '^SVC_HISTORIA_PASSWORD=' .env | cut -d= -f2)
+          export E2E_SQL_CITAS="docker compose exec -T -e PGPASSWORD=$CITAS db-general psql -h 127.0.0.1 -U svc_citas -d libitina_citas"
+          export E2E_SQL_HISTORIA="docker compose exec -T -e PGPASSWORD=$HISTORIA db-clinica psql -h 127.0.0.1 -U svc_historia -d libitina_historia"
+          python pruebas/e2e_atencion.py http://localhost:8000 http://localhost:8025
 
       - name: Aislamiento de bases (Citas no puede entrar a Afiliados)
         run: |

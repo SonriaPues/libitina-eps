@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Marca } from '../components/ui/Marca.jsx';
 import { Campo, Alerta } from '../components/ui/Controles.jsx';
+import { INICIO_POR_ROL } from '../components/layout/ProtectedRoute.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { authApi } from '../api/servicios.js';
 import { USE_MOCK } from '../api/client.js';
@@ -22,7 +23,7 @@ export default function Login() {
     setCargando(true); setError('');
     try {
       const u = await iniciarSesion(correo, clave);
-      navigate(u.rol === 'admin' ? '/admin' : '/portal');
+      navigate(INICIO_POR_ROL[u.rol] ?? '/');
     } catch (err) { setError(err.message); } finally { setCargando(false); }
   }
 

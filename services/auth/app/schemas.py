@@ -50,6 +50,16 @@ class UsuarioInterno(BaseModel):
     nombres: str = Field(min_length=1, max_length=80)
     apellidos: str = Field(min_length=1, max_length=80)
     correo: EmailStr
-    clave: str
+    clave: str | None = None          # sin clave: el usuario la crea con un enlace (doctores)
     rol: Literal["afiliado", "doctor"] = "afiliado"
-    _v = field_validator("clave")(validar_clave)
+
+    @field_validator("clave")
+    @classmethod
+    def _v(cls, v):
+        return validar_clave(v) if v is not None else v
+
+
+class CambioInterno(BaseModel):
+    activo: bool | None = None
+    nombres: str | None = Field(default=None, min_length=1, max_length=80)
+    apellidos: str | None = Field(default=None, min_length=1, max_length=80)

@@ -16,7 +16,7 @@ Tiempo estimado la primera vez: 45 minutos.
 ## Costo
 
 Azure for Students da USD 100 por 12 meses, sin tarjeta. Las máquinas gratuitas del plan tienen 1 GB de
-memoria y Libitina necesita más (14 contenedores, dos de ellos PostgreSQL), así que se usa una
+memoria y Libitina necesita más (15 contenedores, dos de ellos PostgreSQL), así que se usa una
 **B2als v2 (2 procesadores, 4 GB)**: unos USD 0,038 por hora, más unos pocos dólares al mes por el disco y la IP.
 
 - Encendida todo el mes: cerca de USD 30, el crédito dura unos 3 meses.

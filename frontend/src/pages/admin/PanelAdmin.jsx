@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import PanelLayout from '../../components/layout/PanelLayout.jsx';
+import { PanelAdministrador } from '../../components/layout/Paneles.jsx';
 import { Alerta } from '../../components/ui/Controles.jsx';
 import { afiliadosApi } from '../../api/servicios.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -39,7 +39,7 @@ export default function PanelAdmin() {
   }
 
   return (
-    <PanelLayout oscuro menu={[{ texto: 'Afiliaciones', activo: true, contador: cuenta('pendiente'), ruta: '/admin' }, { texto: 'Red de IPS', ruta: '/red-de-ips' }]}>
+    <PanelAdministrador contadores={{ '/admin': cuenta('pendiente') }}>
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1.5"><span className="antetitulo">Administración</span><h1 className="text-3xl font-extrabold">Solicitudes de afiliación</h1></div>
@@ -92,6 +92,6 @@ export default function PanelAdmin() {
           )}
         </div>
       </div>
-    </PanelLayout>
+    </PanelAdministrador>
   );
 }

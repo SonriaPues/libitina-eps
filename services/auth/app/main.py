@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from . import config
 from .db import SessionLocal, get_db
 from .models import Usuario, RefreshToken, TokenVerificacion
-from .schemas import LoginIn, SesionOut, UsuarioOut, RefreshIn, CorreoIn, NuevaClaveIn, UsuarioInterno
+from .schemas import LoginIn, SesionOut, UsuarioOut, RefreshIn, CorreoIn, NuevaClaveIn, UsuarioInterno, CambioInterno
 from .seguridad import (ahora, hash_clave, verificar_clave, sha256, token_aleatorio, crear_access_token,
                         usuario_del_token, solo_interno)
 from .eventos import publicar
@@ -148,6 +148,7 @@ def confirmar_recuperacion(datos: NuevaClaveIn, db: Session = Depends(get_db)):
     t = usar_token(db, datos.token, "recuperacion_contrasena")
     u = db.get(Usuario, t.usuario_id)
     u.password_hash, u.intentos_fallidos, u.bloqueado_hasta = hash_clave(datos.clave), 0, None
+    u.email_verificado = True   # abrir el enlace del correo demuestra que el correo es suyo
     db.execute(update(RefreshToken).where(RefreshToken.usuario_id == u.id).values(revocado=True))  # cierra otras sesiones
     db.commit()
     return {"mensaje": "Tu contraseña se actualizó. Ya puedes iniciar sesión."}
@@ -156,19 +157,57 @@ def confirmar_recuperacion(datos: NuevaClaveIn, db: Session = Depends(get_db)):
 # ---------------- Solo para otros microservicios ----------------
 @app.post("/internal/usuarios", status_code=201, dependencies=[Depends(solo_interno)], tags=["Interno"])
 def crear_usuario(datos: UsuarioInterno, db: Session = Depends(get_db)):
+    """Crea la cuenta. Afiliados: con la clave que escribieron. Doctores: sin clave; se
+    devuelve un enlace (72 h) para que la creen ellos mismos. Nadie más la conoce."""
     if por_correo(db, datos.correo):
         raise HTTPException(409, "Ya existe una cuenta con ese correo.")
+    clave = datos.clave or token_aleatorio()  # aleatoria e irrecuperable hasta que use el enlace
     u = Usuario(tipo_documento=datos.tipo_documento, numero_documento=datos.numero_documento, nombres=datos.nombres,
-                apellidos=datos.apellidos, email=datos.correo.lower(), password_hash=hash_clave(datos.clave), rol=datos.rol)
+                apellidos=datos.apellidos, email=datos.correo.lower(), password_hash=hash_clave(clave), rol=datos.rol)
     db.add(u)
     try:
         db.flush()
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Ya existe una cuenta con ese documento.")
-    token = crear_token_verificacion(db, u.id, "verificacion_email", 24)
+    respuesta = {"id": str(u.id)}
+    if datos.clave:
+        token = crear_token_verificacion(db, u.id, "verificacion_email", 24)
+        respuesta["enlace_verificacion"] = f"{config.FRONTEND_URL}/verificar-correo?token={token}"
+    else:
+        token = crear_token_verificacion(db, u.id, "recuperacion_contrasena", 72)
+        respuesta["enlace_clave"] = f"{config.FRONTEND_URL}/restablecer?token={token}&nuevo=1"
     db.commit()
-    return {"id": str(u.id), "enlace_verificacion": f"{config.FRONTEND_URL}/verificar-correo?token={token}"}
+    return respuesta
+
+
+@app.patch("/internal/usuarios/{usuario_id}", dependencies=[Depends(solo_interno)], tags=["Interno"])
+def cambiar_usuario(usuario_id: str, datos: CambioInterno, db: Session = Depends(get_db)):
+    """Activa o desactiva una cuenta (ej. un doctor que se retira) y actualiza su nombre."""
+    u = db.get(Usuario, usuario_id)
+    if not u:
+        raise HTTPException(404, "Usuario no encontrado.")
+    if datos.nombres:
+        u.nombres = datos.nombres
+    if datos.apellidos:
+        u.apellidos = datos.apellidos
+    if datos.activo is not None:
+        u.activo = datos.activo
+        if not datos.activo:  # cierra sus sesiones abiertas
+            db.execute(update(RefreshToken).where(RefreshToken.usuario_id == u.id).values(revocado=True))
+    db.commit()
+    return {"id": str(u.id), "activo": u.activo}
+
+
+@app.post("/internal/usuarios/{usuario_id}/enlace-clave", dependencies=[Depends(solo_interno)], tags=["Interno"])
+def nuevo_enlace_clave(usuario_id: str, db: Session = Depends(get_db)):
+    """Nuevo enlace para crear la contraseña (si el primero venció)."""
+    u = db.get(Usuario, usuario_id)
+    if not u or not u.activo:
+        raise HTTPException(404, "Usuario no encontrado o inactivo.")
+    token = crear_token_verificacion(db, u.id, "recuperacion_contrasena", 72)
+    db.commit()
+    return {"enlace_clave": f"{config.FRONTEND_URL}/restablecer?token={token}&nuevo=1"}
 
 
 @app.delete("/internal/usuarios/{usuario_id}", status_code=204, dependencies=[Depends(solo_interno)], tags=["Interno"])

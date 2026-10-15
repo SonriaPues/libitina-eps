@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import String, Boolean, Text, SmallInteger, Numeric, ForeignKey, text
+from datetime import date, datetime
+from sqlalchemy import String, Boolean, Text, SmallInteger, Numeric, Date, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
@@ -33,7 +34,18 @@ class PuntoAtencion(Base):
     ciudad: Mapped[str] = mapped_column(String(80))
     direccion: Mapped[str] = mapped_column(Text)
     servicios: Mapped[list] = mapped_column(JSONB)
-    activo: Mapped[bool] = mapped_column(Boolean)
+    activo: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+
+
+class Especialidad(Base):
+    __tablename__ = "especialidades"
+    id: Mapped[uuid.UUID] = Id()
+    codigo: Mapped[str] = mapped_column(String(40))
+    nombre: Mapped[str] = mapped_column(String(100))
+    descripcion: Mapped[str | None] = mapped_column(Text)
+    requiere_remision: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    duracion_cita_min: Mapped[int] = mapped_column(SmallInteger, server_default=text("20"))
+    activa: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
 
 class PerfilDoctor(Base):
@@ -41,6 +53,17 @@ class PerfilDoctor(Base):
     id: Mapped[uuid.UUID] = Id()
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     nombre_completo: Mapped[str] = mapped_column(String(160))
-    especialidad: Mapped[str] = mapped_column(String(100))
-    sede_principal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    estado: Mapped[str] = mapped_column(ENUM("activo", "vacaciones", "inactivo", name="estado_doctor", create_type=False))
+    tarjeta_profesional: Mapped[str] = mapped_column(String(30))
+    especialidad: Mapped[str] = mapped_column(String(100))   # copia del nombre (columna original del modelo)
+    especialidad_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("especialidades.id"))
+    subespecialidad: Mapped[str | None] = mapped_column(String(100))
+    universidad: Mapped[str] = mapped_column(String(150))
+    anio_graduacion: Mapped[int] = mapped_column(SmallInteger)
+    sede_principal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("puntos_atencion.id"))
+    tipo_vinculacion: Mapped[str] = mapped_column(ENUM("planta", "contratista", name="tipo_vinculacion", create_type=False))
+    fecha_ingreso: Mapped[date] = mapped_column(Date)
+    estado: Mapped[str] = mapped_column(ENUM("activo", "vacaciones", "inactivo", name="estado_doctor", create_type=False),
+                                        server_default="activo")
+    email: Mapped[str | None] = mapped_column(String(150))
+    documento: Mapped[str | None] = mapped_column(String(30))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

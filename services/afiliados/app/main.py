@@ -10,7 +10,7 @@ from .db import get_db
 from .eventos import publicar
 from .models import Afiliado, Regimen, Novedad, Consentimiento, Tarifa, Medicamento, ServicioPbs
 from .schemas import InscripcionIn, ReenvioIn, RechazoIn
-from .seguridad import usuario_del_token, requiere_rol
+from .seguridad import usuario_del_token, requiere_rol, solo_interno
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("afiliados")
@@ -270,3 +270,41 @@ def medicamentos(q: str = "", grupo: str = "", db: Session = Depends(get_db)):
 def plan_beneficios(db: Session = Depends(get_db)):
     return [{"categoria": s.categoria, "nombre": s.nombre, "requiere_autorizacion": s.requiere_autorizacion}
             for s in db.scalars(select(ServicioPbs).where(ServicioPbs.activo))]
+
+
+# ---------------- Solo para otros microservicios (Citas, Trámites, Historia) ----------------
+def persona_interna(p: Afiliado) -> dict:
+    return {"id": str(p.id), "nombres": p.nombres, "apellidos": p.apellidos, "tipo_documento": p.tipo_documento,
+            "numero_documento": p.numero_documento, "fecha_nacimiento": p.fecha_nacimiento.isoformat(), "sexo": p.sexo,
+            "estado": p.estado, "tipo_afiliado": p.tipo_afiliado, "parentesco": p.parentesco}
+
+
+def grupo_interno(db: Session, titular: Afiliado) -> dict:
+    return {"titular": {**persona_interna(titular), "usuario_id": str(titular.usuario_id) if titular.usuario_id else None,
+                        "email": titular.email},
+            "beneficiarios": [persona_interna(b) for b in beneficiarios_de(db, titular.id)],
+            "regimen": db.scalar(select(Regimen.codigo).where(Regimen.id == titular.regimen_id)),
+            "categoria": titular.categoria, "grupo_sisben": titular.grupo_sisben,
+            "ips_id": str(titular.ips_id) if titular.ips_id else None, "fecha_afiliacion": titular.fecha_afiliacion.isoformat() if titular.fecha_afiliacion else None}
+
+
+@app.get("/internal/afiliados/grupo", dependencies=[Depends(solo_interno)], tags=["Interno"])
+def grupo_por_usuario(usuario_id: str, db: Session = Depends(get_db)):
+    """Titular (dueño de la cuenta) y sus beneficiarios."""
+    t = db.scalar(select(Afiliado).where(Afiliado.usuario_id == usuario_id, Afiliado.eliminado_en.is_(None)))
+    if not t:
+        raise HTTPException(404, "No encontramos una afiliación asociada a tu cuenta.")
+    return grupo_interno(db, t)
+
+
+@app.get("/internal/afiliados/{afiliado_id}", dependencies=[Depends(solo_interno)], tags=["Interno"])
+def afiliado_interno(afiliado_id: str, db: Session = Depends(get_db)):
+    """Una persona (titular o beneficiario) con los datos de su grupo."""
+    try:
+        p = db.get(Afiliado, afiliado_id)
+    except Exception:  # noqa: BLE001 - id con formato inválido
+        p = None
+    if not p or p.eliminado_en:
+        raise HTTPException(404, "Afiliado no encontrado.")
+    titular = p if p.tipo_afiliado == "cotizante" else db.get(Afiliado, p.cotizante_id)
+    return {"persona": persona_interna(p), **grupo_interno(db, titular)}

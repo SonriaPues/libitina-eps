@@ -1,6 +1,7 @@
+import secrets
 import jwt
 from fastapi import Header, HTTPException, Depends
-from .config import JWT_SECRET
+from .config import JWT_SECRET, INTERNAL_TOKEN
 
 
 def usuario_del_token(authorization: str = Header(default="")) -> dict:
@@ -20,3 +21,9 @@ def requiere_rol(*roles: str):
             raise HTTPException(403, "No tienes permiso para esta acción.")
         return u
     return dependencia
+
+
+def solo_interno(x_internal_token: str = Header(default="")):
+    """Endpoints que solo llaman otros microservicios. El Gateway nunca los expone."""
+    if not secrets.compare_digest(x_internal_token, INTERNAL_TOKEN):
+        raise HTTPException(403, "Acceso solo para servicios internos.")

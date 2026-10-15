@@ -18,5 +18,13 @@ export const Icono = {
   facebook: (p) => <svg {...base} {...p}><path d="M15 3h-2a4 4 0 0 0-4 4v3H7v4h2v7h4v-7h2.5l.5-4h-3V7a1 1 0 0 1 1-1h2z" /></svg>,
   menu: (p) => <svg {...base} {...p}><path d="M4 7h16M4 12h16M4 17h16" /></svg>,
   cerrar: (p) => <svg {...base} {...p}><path d="M6 6l12 12M18 6L6 18" /></svg>,
+  calendario: (p) => <svg {...base} {...p}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>,
+  historia: (p) => <svg {...base} {...p}><path d="M6 3v6a4 4 0 0 0 8 0V3" /><path d="M10 13v2a5 5 0 0 0 10 0v-2" /><circle cx="20" cy="11" r="2" /></svg>,
+  certificado: (p) => <svg {...base} {...p}><path d="M5 3h14v12H5z" /><path d="M9 7h6M9 10h4" /><circle cx="12" cy="17" r="2.5" /><path d="M10.5 19l-1 3 2.5-1.2 2.5 1.2-1-3" /></svg>,
+  estrella: (p) => <svg {...base} {...p}><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" /></svg>,
+  bandeja: (p) => <svg {...base} {...p}><path d="M3 13l3-8h12l3 8v6H3z" /><path d="M3 13h5l1 2h6l1-2h5" /></svg>,
+  doctor: (p) => <svg {...base} {...p}><circle cx="12" cy="7" r="4" /><path d="M5 21c0-4 3-6.5 7-6.5s7 2.5 7 6.5" /><path d="M12 14.5V18M10.5 16.5h3" /></svg>,
+  mas: (p) => <svg {...base} {...p}><path d="M12 5v14M5 12h14" /></svg>,
+  reloj: (p) => <svg {...base} {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>,
   mapa: (p) => <svg {...base} {...p}><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z" /><path d="M9 4v14M15 6v14" /></svg>,
 };

@@ -21,7 +21,7 @@ class Plantilla(Base):
 class Notificacion(Base):
     __tablename__ = "notificaciones"
     id: Mapped[uuid.UUID] = Id()
-    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    usuario_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     email_destino: Mapped[str] = mapped_column(String(150))
     asunto: Mapped[str] = mapped_column(String(200))
     cuerpo_html: Mapped[str] = mapped_column(Text)

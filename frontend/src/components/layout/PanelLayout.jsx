@@ -4,7 +4,7 @@ import { Icono } from '../ui/Iconos.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 // Estructura tipo dashboard para el portal del afiliado (claro) y el panel de admin (oscuro).
-export default function PanelLayout({ oscuro = false, menu, children }) {
+export default function PanelLayout({ oscuro = false, etiqueta = null, menu, children }) {
   const { cerrarSesion } = useAuth();
   const navigate = useNavigate();
   const salir = () => { cerrarSesion(); navigate('/iniciar-sesion'); };
@@ -13,7 +13,7 @@ export default function PanelLayout({ oscuro = false, menu, children }) {
       <aside className={`flex shrink-0 flex-col gap-7 px-4 py-6 lg:min-h-screen lg:w-64 ${oscuro ? 'bg-azul-950' : 'border-b border-azul-100 bg-white lg:border-b-0 lg:border-r'}`}>
         <div className="px-2">
           <Marca alto={36} claro={oscuro} conPlaca={oscuro} texto="text-[17px]" />
-          {oscuro && <span className="mt-1 block pl-[60px] text-xs text-azul-200">Administración</span>}
+          {oscuro && <span className="mt-1 block pl-[60px] text-xs text-azul-200">{etiqueta || 'Administración'}</span>}
         </div>
         <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Panel">
           {menu.map((m) => (

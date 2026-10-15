@@ -25,6 +25,17 @@ import VerificarCorreo from './pages/VerificarCorreo.jsx';
 import Restablecer from './pages/Restablecer.jsx';
 import PortalAfiliado from './pages/portal/PortalAfiliado.jsx';
 import PanelAdmin from './pages/admin/PanelAdmin.jsx';
+import VerificarCertificado from './pages/VerificarCertificado.jsx';
+import Citas from './pages/portal/Citas.jsx';
+import HistoriaClinica from './pages/portal/HistoriaClinica.jsx';
+import Certificados from './pages/portal/Certificados.jsx';
+import MisPqrsd from './pages/portal/MisPqrsd.jsx';
+import AgendaMedico from './pages/doctor/Agenda.jsx';
+import AtencionCita from './pages/doctor/Atencion.jsx';
+import Doctores from './pages/admin/Doctores.jsx';
+import AgendaDoctor from './pages/admin/AgendaDoctor.jsx';
+import Especialidades from './pages/admin/Especialidades.jsx';
+import BandejaPqrsd from './pages/admin/Pqrsd.jsx';
 
 function SubirAlCambiarRuta() {
   const { pathname } = useLocation();
@@ -48,6 +59,7 @@ export default function App() {
           <Route path="/tramites/certificado" element={<Certificado />} />
           <Route path="/tramites/carne-digital" element={<Carne />} />
           <Route path="/tramites/pqrsd" element={<Pqrsd />} />
+          <Route path="/tramites/verificar-certificado" element={<VerificarCertificado />} />
           <Route path="/tramites/proximamente/:servicio" element={<Proximamente />} />
           <Route path="/red-de-ips" element={<RedIps />} />
           <Route path="/atencion-al-usuario" element={<Atencion />} />
@@ -61,7 +73,17 @@ export default function App() {
         <Route path="/verificar-correo" element={<VerificarCorreo />} />
         <Route path="/restablecer" element={<Restablecer />} />
         <Route path="/portal" element={<ProtectedRoute rol="afiliado"><PortalAfiliado /></ProtectedRoute>} />
+        <Route path="/portal/citas" element={<ProtectedRoute rol="afiliado"><Citas /></ProtectedRoute>} />
+        <Route path="/portal/historia" element={<ProtectedRoute rol="afiliado"><HistoriaClinica /></ProtectedRoute>} />
+        <Route path="/portal/certificados" element={<ProtectedRoute rol="afiliado"><Certificados /></ProtectedRoute>} />
+        <Route path="/portal/pqrsd" element={<ProtectedRoute rol="afiliado"><MisPqrsd /></ProtectedRoute>} />
+        <Route path="/doctor" element={<ProtectedRoute rol="doctor"><AgendaMedico /></ProtectedRoute>} />
+        <Route path="/doctor/citas/:id" element={<ProtectedRoute rol="doctor"><AtencionCita /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute rol="admin"><PanelAdmin /></ProtectedRoute>} />
+        <Route path="/admin/doctores" element={<ProtectedRoute rol="admin"><Doctores /></ProtectedRoute>} />
+        <Route path="/admin/doctores/:id/agenda" element={<ProtectedRoute rol="admin"><AgendaDoctor /></ProtectedRoute>} />
+        <Route path="/admin/especialidades" element={<ProtectedRoute rol="admin"><Especialidades /></ProtectedRoute>} />
+        <Route path="/admin/pqrsd" element={<ProtectedRoute rol="admin"><BandejaPqrsd /></ProtectedRoute>} />
       </Routes>
     </>
   );

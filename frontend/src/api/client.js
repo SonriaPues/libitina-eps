@@ -36,7 +36,11 @@ async function renovar() {
   return renovando;
 }
 
-export async function api(path, { method = 'GET', body, auth = false, reintento = true } = {}) {
+export async function api(path, { method = 'GET', body, auth = false, reintento = true, params } = {}) {
+  if (params) {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+    if ([...q].length) path += (path.includes('?') ? '&' : '?') + q;
+  }
   const headers = { 'Content-Type': 'application/json' };
   if (auth && getToken()) headers.Authorization = `Bearer ${getToken()}`;
   let res;
@@ -51,4 +55,18 @@ export async function api(path, { method = 'GET', body, auth = false, reintento 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(mensaje(data), res.status);
   return data;
+}
+
+// Descarga un archivo protegido (ej. el PDF del certificado) y lo guarda en el equipo.
+export async function descargar(rutaCompleta, nombre, reintento = true) {
+  const res = await fetch(rutaCompleta, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (res.status === 401 && reintento && (await renovar())) return descargar(rutaCompleta, nombre, false);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(mensaje(data), res.status);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = Object.assign(document.createElement('a'), { href: url, download: nombre });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

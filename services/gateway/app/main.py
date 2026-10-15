@@ -31,8 +31,11 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 ORIGENES = [o.strip() for o in os.getenv("FRONTEND_URL", "http://localhost:5173").split(",")]
 LIMITE_GENERAL = int(os.getenv("LIMITE_POR_MINUTO", "120"))
 LIMITE_SENSIBLE = int(os.getenv("LIMITE_SENSIBLE_POR_MINUTO", "10"))
+# Rutas públicas que un atacante podría usar por fuerza bruta: límite estricto por IP.
+# Se comparan por prefijo, así cubren también rutas con parámetros (ej. el código de un certificado).
 SENSIBLES = {("POST", "auth/login"), ("POST", "auth/recuperar"), ("POST", "auth/recuperar/confirmar"),
-             ("POST", "afiliados/inscripcion"), ("GET", "afiliados/consulta")}
+             ("POST", "afiliados/inscripcion"), ("GET", "afiliados/consulta"), ("POST", "tramites/pqrsd"),
+             ("GET", "tramites/pqrsd/consulta"), ("GET", "tramites/certificados/verificar")}
 TAMANO_MAXIMO = 1_000_000  # 1 MB por petición
 # Carpeta con el build del front. En desarrollo no existe y el front corre con `npm run dev`.
 ESTATICOS = Path(os.getenv("FRONT_DIR", "/srv/front"))
@@ -94,16 +97,17 @@ async def salud():
     return {"gateway": "ok", "servicios": dict(zip(SERVICIOS, resultados))}
 
 
+@app.api_route("/api/v1/{servicio}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @app.api_route("/api/v1/{servicio}/{ruta:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-async def enrutar(servicio: str, ruta: str, request: Request):
+async def enrutar(servicio: str, request: Request, ruta: str = ""):
     if servicio not in SERVICIOS or ruta.startswith("internal") or ".." in ruta:
         return error(404, "Recurso no encontrado.")
 
     ip = ip_cliente(request)
     destino = f"{servicio}/{ruta}".rstrip("/")
-    sensible = (request.method, destino) in SENSIBLES
+    sensible = next((r for m, r in SENSIBLES if m == request.method and (destino == r or destino.startswith(r + "/"))), None)
     # Cada ruta sensible lleva su propio contador; el resto comparte el límite general
-    if excede_limite(f"{ip}:{destino if sensible else '*'}", LIMITE_SENSIBLE if sensible else LIMITE_GENERAL):
+    if excede_limite(f"{ip}:{sensible or '*'}", LIMITE_SENSIBLE if sensible else LIMITE_GENERAL):
         return error(429, "Hiciste demasiadas solicitudes seguidas. Espera un minuto e intenta de nuevo.", headers={"Retry-After": "60"})
 
     auth = request.headers.get("authorization", "")
@@ -123,12 +127,14 @@ async def enrutar(servicio: str, ruta: str, request: Request):
     encabezados = {k: v for k, v in request.headers.items() if k.lower() in ("authorization", "content-type", "user-agent", "accept")}
     encabezados["X-Forwarded-For"] = ip
     try:
-        r = await cliente.request(request.method, f"{SERVICIOS[servicio]}/{servicio}/{ruta}", params=request.query_params,
+        destino_url = f"{SERVICIOS[servicio]}/{servicio}" + (f"/{ruta}" if ruta else "")
+        r = await cliente.request(request.method, destino_url, params=request.query_params,
                                   content=cuerpo, headers=encabezados)
     except httpx.HTTPError:
         return error(503, "El servicio no está disponible en este momento. Intenta de nuevo en unos minutos.")
     tipo = r.headers.get("content-type", "application/json")
-    return Response(content=r.content, status_code=r.status_code, media_type=tipo)
+    extra = {k: r.headers[k] for k in ("content-disposition",) if k in r.headers}   # descargas (PDF)
+    return Response(content=r.content, status_code=r.status_code, media_type=tipo, headers=extra)
 
 
 @app.api_route("/api/{resto:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

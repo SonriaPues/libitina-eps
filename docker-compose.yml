@@ -94,8 +94,10 @@ services:
     <<: *servicio
     build: ./services/prestadores
     environment:
+      <<: *comunes
       DATABASE_URL: postgresql+psycopg://svc_prestadores:${SVC_PRESTADORES_PASSWORD}@db-general:5432/libitina_prestadores
-    depends_on: { db-general: { condition: service_healthy } }
+      AUTH_URL: http://auth:8000
+    depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
 
   afiliados:
     <<: *servicio
@@ -136,27 +138,35 @@ services:
       CORREO_REMITENTE: ${CORREO_REMITENTE:-Libitina EPS <no-responder@libitina.co>}
     depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
 
-  # Base completa; sus endpoints llegan en las próximas entregas (ver ROADMAP.md)
   tramites:
     <<: *servicio
     build: ./services/tramites
     environment:
+      <<: *comunes
       DATABASE_URL: postgresql+psycopg://svc_tramites:${SVC_TRAMITES_PASSWORD}@db-general:5432/libitina_tramites
-      JWT_SECRET: ${JWT_SECRET}
-      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       AFILIADOS_URL: http://afiliados:8000
-    depends_on: { db-general: { condition: service_healthy } }
+      CITAS_URL: http://citas:8000
+      PRESTADORES_URL: http://prestadores:8000
+    depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
 
   citas:
     <<: *servicio
     build: ./services/citas
-    environment:
+    environment: &entorno-citas
+      <<: *comunes
       DATABASE_URL: postgresql+psycopg://svc_citas:${SVC_CITAS_PASSWORD}@db-general:5432/libitina_citas
-      JWT_SECRET: ${JWT_SECRET}
-      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       AFILIADOS_URL: http://afiliados:8000
       PRESTADORES_URL: http://prestadores:8000
-    depends_on: { db-general: { condition: service_healthy } }
+      TRAMITES_URL: http://tramites:8000
+    depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy } }
+
+  # Eventos de doctores (cola "citas"), reconciliación cada 10 min y recordatorios del día siguiente
+  citas-worker:
+    <<: *servicio
+    build: ./services/citas
+    command: celery -A app.worker worker -B --schedule /tmp/celerybeat-schedule -Q citas --loglevel=info --concurrency=1
+    environment: *entorno-citas
+    depends_on: { db-general: { condition: service_healthy }, redis: { condition: service_healthy }, prestadores: { condition: service_started } }
 
   historia:
     <<: *servicio
@@ -167,6 +177,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       CLAVE_CIFRADO_HISTORIA: ${CLAVE_CIFRADO_HISTORIA:?Falta CLAVE_CIFRADO_HISTORIA en .env}
+      CITAS_URL: http://citas:8000
+      AFILIADOS_URL: http://afiliados:8000
     depends_on: { db-clinica: { condition: service_healthy } }
 
   # ---------------- Punto de entrada único (API + front compilado) ----------------

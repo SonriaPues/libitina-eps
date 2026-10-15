@@ -2,7 +2,7 @@
 
 EPS ficticia con fines académicos (Universidad Católica de Colombia · Producción de Software), construida
 con una **arquitectura de microservicios**: 7 servicios en **FastAPI**, **PostgreSQL 16**, **Celery + Redis**
-para los correos, un **API Gateway** como único punto de entrada y un front en **React + Vite + Tailwind**.
+para los correos y las tareas programadas, un **API Gateway** como único punto de entrada y un front en **React + Vite + Tailwind**.
 
 ## Estructura del repositorio
 
@@ -12,18 +12,18 @@ libitina-eps/
 │   ├── gateway/              Punto de entrada único: API + front compilado
 │   ├── auth/                 Autenticación (usuarios, JWT, verificación de correo)
 │   ├── afiliados/            Afiliación, grupo familiar, aprobación y catálogos
-│   ├── prestadores/          Red de prestadores: IPS, puntos de atención, profesionales
+│   ├── prestadores/          Red de prestadores, especialidades y gestión de doctores
 │   ├── notificaciones/       API de la campanita + worker de Celery que envía los correos
-│   ├── tramites/             PQRSD, certificados, autorizaciones (base lista; endpoints en camino)
-│   ├── citas/                Agendas, citas y reservas de salas (base lista; endpoints en camino)
-│   └── historia/             Historia clínica cifrada y auditada (base lista; endpoints en camino)
-├── frontend/                 Sitio público, inscripción, portal del afiliado y panel de administración
-├── bases/                    Las 40 tablas: esquemas SQL y scripts que crean bases y usuarios
+│   ├── tramites/             PQRSD, certificados en PDF con QR y remisiones a especialista
+│   ├── citas/                Turnos, agendamiento, recordatorios (API + worker de Celery)
+│   └── historia/             Historia clínica cifrada y con registro de cada acceso
+├── frontend/                 Sitio público, portal del afiliado, portal del doctor y administración
+├── bases/                    Las 41 tablas: esquemas SQL y scripts que crean bases y usuarios
 ├── infra/
 │   ├── nginx/                Proxy inverso con HTTPS (producción)
 │   ├── respaldos/            Respaldo diario de las 7 bases y restauración
 │   └── servidor/             Instalación, certificado y despliegue en la máquina de Azure
-├── pruebas/e2e.py            Prueba de punta a punta del flujo de afiliación
+├── pruebas/                  e2e.py (afiliación) y e2e_atencion.py (doctores, citas, historia y trámites)
 ├── docs/                     Guía de despliegue en Azure
 ├── .github/workflows/        Integración y despliegue continuos
 ├── docker-compose.yml            Servicios comunes
@@ -59,11 +59,14 @@ libitina-eps/
 |---|---|---|---|
 | Autenticación | libitina_auth | 3 | Completo |
 | Afiliados | libitina_afiliados | 7 | Completo |
-| Red de Prestadores | libitina_prestadores | 4 | Completo |
+| Red de Prestadores | libitina_prestadores | 5 | Completo |
 | Notificaciones (API + worker) | libitina_notificaciones | 5 | Completo |
-| Trámites | libitina_tramites | 7 | Base lista · endpoints en la próxima entrega |
-| Citas Médicas | libitina_citas | 6 | Base lista · endpoints en la próxima entrega |
-| Historia Clínica | libitina_historia (servidor clínico) | 8 | Base lista · endpoints en la próxima entrega |
+| Trámites | libitina_tramites | 7 | Certificados, PQRSD y remisiones |
+| Citas Médicas (API + worker) | libitina_citas | 6 | Turnos, agendamiento y recordatorios |
+| Historia Clínica | libitina_historia (servidor clínico) | 8 | Consultas, alergias y antecedentes |
+
+**Migraciones:** cada servicio aplica al arrancar los archivos de `app/migraciones/` que falten (los registra en
+`schema_migraciones`), así que una base que ya tiene datos en Azure se actualiza sin perderlos.
 
 ### Principios
 
@@ -74,7 +77,9 @@ libitina-eps/
   (`afiliacion_recibida`, `afiliacion_aprobada`…) y el worker de Notificaciones los convierte en correos,
   con reintentos. Si el correo falla, la afiliación no se cae.
 - **Compensación en lugar de transacciones distribuidas.** Si la afiliación falla después de crear la cuenta
-  en Autenticación, Afiliados la borra.
+  en Autenticación, Afiliados la borra; si una cita no se guarda, Trámites libera la remisión que se usó.
+- **Tareas programadas** (worker de Citas con Celery Beat): copia de los doctores cada 10 minutos y
+  recordatorio por correo el día anterior a cada cita.
 - **Un único punto de entrada.** El Gateway enruta `/api/v1/<servicio>/...` y sirve el front compilado, así
   que toda la aplicación vive en una sola dirección.
 
@@ -85,11 +90,12 @@ libitina-eps/
 - **Redes internas de Docker sin salida a internet** (`internal: true`); solo el worker sale, para enviar correos.
 - **Mínimo privilegio en contenedores:** cada uno recibe solo sus variables, corre con usuario sin privilegios,
   sistema de archivos de solo lectura y `no-new-privileges`.
-- **Textos clínicos cifrados** con pgcrypto; la clave vive fuera de la base.
+- **Textos clínicos cifrados** con pgcrypto; la clave vive fuera de la base. Cada lectura de una historia
+  queda en un registro de accesos que no se puede borrar, y un doctor solo la abre si tiene una cita con ese paciente.
 - **Contraseñas con bcrypt** y tokens guardados como hash SHA-256; bloqueo de 15 minutos tras 5 intentos fallidos.
 - **JWT de 30 minutos** y refresh token de 7 días que rota en cada uso.
 - **Gateway:** valida el JWT, limita a 10 peticiones por minuto cada ruta sensible (login, inscripción,
-  recuperación, consulta pública) y 120 el resto, agrega encabezados de seguridad y nunca expone `/internal`.
+  recuperación, consulta pública, PQRSD y verificación de certificados) y 120 el resto, agrega encabezados de seguridad y nunca expone `/internal`.
 - **Producción:** HTTPS con Let's Encrypt, HSTS, límite de peticiones también en Nginx, y solo los puertos 80 y 443 abiertos.
 - **Consentimiento** (Ley 1581 de 2012) guardado con versión de la política, fecha e IP.
 
@@ -107,10 +113,11 @@ docker compose up --build
 | La aplicación completa (front compilado + API) | http://localhost:8000 |
 | Estado de los servicios | http://localhost:8000/api/v1/health |
 | Correos de prueba (Mailpit) | http://localhost:8025 |
-| Documentación de cada servicio | http://localhost:8001/docs (auth) · 8002 (afiliados) · 8006 (notificaciones) · 8007 (prestadores) |
+| Documentación de cada servicio | http://localhost:8001/docs (auth) · 8002 (afiliados) · 8003 (historia) · 8004 (trámites) · 8005 (citas) · 8006 (notificaciones) · 8007 (prestadores) |
 | PostgreSQL general / clínico | localhost:5432 / 5433, solo desde tu computador |
 
-Administrador inicial: `admin@libitina.co` / `Admin123` (cámbialo en `.env`).
+Administrador inicial: `admin@libitina.co` / `Admin123` (cámbialo en `.env`). Los doctores los crea el
+administrador en **Doctores y agendas**; a cada uno le llega un correo para crear su contraseña.
 
 **Para trabajar en el front** con recarga automática, deja Docker corriendo y en otra terminal:
 
@@ -128,9 +135,13 @@ Si cambias un script de `bases/esquemas`, borra las bases para que se vuelvan a 
 `pruebas/e2e.py` recorre el flujo completo a través del Gateway: validaciones de negocio, inscripción, sesión
 y refresh token, rechazo con motivo, corrección, aprobación, consulta pública, correos y bloqueo por intentos.
 
+`pruebas/e2e_atencion.py` crea especialidades y doctores, agenda, cancela y reagenda citas, registra la consulta
+cifrada, emite una remisión, agenda con ella al especialista, expide y verifica un certificado y radica PQRSD.
+
 ```powershell
 pip install httpx
 python pruebas/e2e.py
+python pruebas/e2e_atencion.py
 ```
 
 GitHub Actions la corre en **cada push**, con todo el sistema levantado en Docker, y además comprueba que un
@@ -155,7 +166,19 @@ En Azure for Students, sobre una máquina virtual con Docker Compose. Paso a pas
 | GET | /afiliados/solicitudes?estado= | Admin |
 | POST | /afiliados/solicitudes/{id}/aprobar · /rechazar | Admin |
 | GET | /afiliados/regimenes · /tarifas · /medicamentos · /plan-beneficios | Público |
-| GET | /prestadores/ips · /prestadores/ips/{id} · /puntos-atencion · /doctores | Público |
+| GET | /prestadores/ips · /prestadores/ips/{id} · /puntos-atencion · /especialidades · /doctores | Público |
+| GET · POST · PUT | /prestadores/admin/doctores · /prestadores/especialidades | Admin |
+| GET | /citas/especialidades · /citas/disponibilidad | Afiliado |
+| GET · POST | /citas/mias · /citas · /citas/{id}/cancelar · /citas/{id}/reagendar | Afiliado |
+| GET · POST | /citas/doctor/agenda · /citas/doctor/citas/{id} · /citas/{id}/no-asistio | Doctor |
+| GET · POST · DELETE | /citas/admin/doctores/{id}/agenda · /turnos · /excepciones | Admin |
+| GET · POST | /historia/pacientes/{id}?cita_id= · /historia/consultas · /alergias · /antecedentes | Doctor |
+| GET | /historia/mia · /historia/mia/accesos | Afiliado |
+| POST · GET | /tramites/remisiones · /tramites/remisiones/mias | Doctor · Afiliado |
+| POST · GET | /tramites/certificados · /tramites/certificados/{id}/pdf | Afiliado |
+| GET | /tramites/certificados/verificar/{codigo} | Público (datos enmascarados) |
+| POST · GET | /tramites/pqrsd · /tramites/pqrsd/consulta · /tramites/pqrsd/mias | Público · Afiliado |
+| GET · POST | /tramites/admin/pqrsd · /{id}/en-proceso · /{id}/responder | Admin |
 | GET · PATCH | /notificaciones/mias · /notificaciones/{id}/leida | Con sesión |
 | GET | /notificaciones/envios | Admin |
 

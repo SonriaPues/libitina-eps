@@ -2,12 +2,18 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
-from .db import get_db
+from .db import engine, get_db
+from .migrar import aplicar
 from .models import Notificacion
 from .seguridad import usuario_del_token, requiere_rol
 
 app = FastAPI(title="Libitina · Notificaciones", version="1.0.0",
               description="Historial de notificaciones del usuario (campanita del portal). El envío lo hace el worker de Celery.")
+
+
+@app.on_event("startup")
+def migrar():
+    aplicar(engine)
 
 
 @app.get("/health", tags=["Salud"])

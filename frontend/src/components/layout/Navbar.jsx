@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { INICIO_POR_ROL } from './ProtectedRoute.jsx';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Marca } from '../ui/Marca.jsx';
 import { Icono } from '../ui/Iconos.jsx';
@@ -11,7 +12,7 @@ export default function Navbar() {
   const { usuario } = useAuth();
   const activo = (item) => pathname === item.ruta || item.hijos?.some((h) => pathname.startsWith(h.ruta.split('/').slice(0, 3).join('/')) && h.ruta !== '/');
 
-  const destinoPortal = usuario?.rol === 'admin' ? '/admin' : '/portal';
+  const destinoPortal = INICIO_POR_ROL[usuario?.rol] ?? '/portal';
 
   return (
     <header className="sticky top-0 z-40 border-b border-azul-100 bg-white/95 backdrop-blur">

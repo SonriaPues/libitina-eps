@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import PanelLayout from '../../components/layout/PanelLayout.jsx';
+import { PanelAfiliado } from '../../components/layout/Paneles.jsx';
+import { EstadoCita } from '../../components/ui/Piezas.jsx';
 import { Icono } from '../../components/ui/Iconos.jsx';
 import { Alerta } from '../../components/ui/Controles.jsx';
-import { afiliadosApi, authApi, prestadoresApi } from '../../api/servicios.js';
+import { afiliadosApi, authApi, prestadoresApi, citasApi } from '../../api/servicios.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { IPS, nombreIps } from '../../data/ips.js';
-import { estado, PARENTESCOS, fechaHora, iniciales, nombreCompleto } from '../../utils/formato.js';
+import { estado, PARENTESCOS, fechaHora, iniciales, nombreCompleto, fechaLarga, hora12 } from '../../utils/formato.js';
 
 const TARJETA = {
   pendiente: { titulo: 'Tu solicitud está en revisión', texto: 'Un administrador está revisando tus datos y los de tu grupo familiar. Te avisaremos por correo cuando haya una respuesta.', caja: 'border-dorado-200 bg-dorado-50', icono: 'bg-dorado-100', marca: '…' },
@@ -20,23 +21,20 @@ export default function PortalAfiliado() {
   const [ips, setIps] = useState(IPS);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
+  const [proximas, setProximas] = useState([]);
 
   useEffect(() => {
     afiliadosApi.miAfiliacion().then(setA).catch((e) => setError(e.message));
     prestadoresApi.ips().then(setIps);
+    citasApi.mias().then((m) => setProximas(m.proximas)).catch(() => {});   // en modo demostración no hay citas
   }, []);
 
   const reenviarVerificacion = () => authApi.reenviarVerificacion().then((r) => setAviso(r.mensaje)).catch((e) => setAviso(e.message));
   const tarjeta = a ? TARJETA[a.estado] ?? TARJETA.pendiente : null;
-  const menu = [
-    { texto: 'Resumen', icono: <Icono.casa width={20} height={20} />, activo: true, ruta: '/portal' },
-    { texto: 'Certificados', icono: <Icono.documento width={20} height={20} />, ruta: '/tramites/certificado' },
-    { texto: 'Mis PQRSD', icono: <Icono.mensaje width={20} height={20} />, ruta: '/tramites/pqrsd' },
-    { texto: 'Red de IPS', icono: <Icono.ubicacion width={20} height={20} />, ruta: '/red-de-ips' },
-  ];
+
 
   return (
-    <PanelLayout menu={menu}>
+    <PanelAfiliado>
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-col gap-1"><span className="text-[15px] text-azul-500">Hola,</span><h1 className="text-3xl font-extrabold">{usuario?.nombre}</h1></div>
@@ -64,9 +62,21 @@ export default function PortalAfiliado() {
                   )}
                 </div>
                 {a.estado === 'rechazado' && <Link to="/inscripcion?corregir=1" className="btn-primario shrink-0">Corregir y reenviar</Link>}
-                {a.estado === 'activo' && <Link to="/tramites/certificado" className="btn-dorado shrink-0">Descargar certificado</Link>}
+                {a.estado === 'activo' && <Link to="/portal/citas?agendar=1" className="btn-dorado shrink-0">Agendar una cita</Link>}
               </div>
             </section>
+
+            {a.estado === 'activo' && (
+              <section className="tarjeta flex flex-col gap-3 p-6">
+                <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-bold">Próximas citas</h2><Link to="/portal/citas" className="text-sm font-semibold text-azul-600">Ver todas</Link></div>
+                {proximas.length === 0 && <span className="text-[15px] text-azul-600">No tienes citas próximas. <Link to="/portal/citas?agendar=1" className="font-semibold text-azul-600">Agenda una</Link>.</span>}
+                <div className="grid gap-3 md:grid-cols-2">{proximas.slice(0, 2).map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl bg-azul-50 px-4 py-3">
+                    <span className="flex flex-col"><span className="font-semibold">{c.especialidad} · {c.paciente.split(' ')[0]}</span><span className="text-sm capitalize text-azul-700">{fechaLarga(c.fecha)}, {hora12(c.hora)} · {c.doctor}</span></span>
+                    <EstadoCita estado={c.estado} />
+                  </div>))}</div>
+              </section>
+            )}
 
             <div className="grid gap-5 lg:grid-cols-3">
               <section className="tarjeta flex flex-col gap-4 p-6">
@@ -100,6 +110,6 @@ export default function PortalAfiliado() {
           </>
         )}
       </div>
-    </PanelLayout>
+    </PanelAfiliado>
   );
 }
