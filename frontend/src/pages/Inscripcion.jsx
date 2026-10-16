@@ -9,6 +9,7 @@ import { DEPARTAMENTOS, SEXOS, ETNIAS, DISCAPACIDADES, CATEGORIAS, SISBEN } from
 import { validarBeneficiarios, edad } from '../utils/beneficiarios.js';
 import { correoValido, claveSegura, soloNumeros } from '../utils/validaciones.js';
 import { PARENTESCOS, nombreCompleto } from '../utils/formato.js';
+import { titularDePrueba, afiliacionDePrueba, beneficiariosDePrueba, cuentaDePrueba } from '../utils/datosPrueba.js';
 
 const TITULOS = { datos: 'Cuéntanos quién eres', regimen: 'Elige tu régimen y tu IPS', familia: 'Agrega a tu grupo familiar', cuenta: 'Crea tu cuenta', confirmacion: 'Revisa y envía' };
 const ETIQUETAS = { datos: 'Datos personales', regimen: 'Régimen e IPS', familia: 'Grupo familiar', cuenta: 'Tu cuenta', confirmacion: 'Confirmación' };
@@ -100,9 +101,21 @@ export default function Inscripcion() {
   }
 
   function irA(p) {
+    if (!prueba.startsWith('Anota')) setPrueba('');
     if (p <= paso) { setErrores({}); setPaso(p); return; }
     for (let i = paso; i < p; i++) if (!validar(PASOS[i])) { setPaso(i); return; }
     setPaso(p);
+  }
+
+  // Botón de pruebas: llena el paso actual con datos aleatorios válidos.
+  const [prueba, setPrueba] = useState('');
+  function rellenar() {
+    setErrores({}); setPrueba('');
+    if (id === 'datos') setT(titularDePrueba({ ...t, bloqueado: corregir }));
+    if (id === 'regimen') setAf(afiliacionDePrueba(ips, t));
+    if (id === 'familia') { const l = beneficiariosDePrueba(t, nuevoBenef); setBenefs(l); if (!l.length) setPrueba('Esta vez salió sin beneficiarios. Vuelve a tocar el botón para generar otro grupo.'); }
+    if (id === 'cuenta') { const c = cuentaDePrueba(t); setCuenta(c); setPrueba(`Anota estos datos para entrar después: ${c.correo} · contraseña ${c.clave}`); }
+    if (id === 'confirmacion') setCons({ ...cons, autoriza_datos_salud: true, declara_veracidad: true });
   }
 
   function datosAfiliacion() {
@@ -285,11 +298,17 @@ export default function Inscripcion() {
               )}
 
               {errorEnvio && <Alerta>{errorEnvio}</Alerta>}
-              <div className="mt-auto flex items-center justify-between border-t border-azul-50 pt-5">
+              {prueba && <Alerta tipo="aviso">{prueba}</Alerta>}
+              <div className="mt-auto flex flex-col gap-4 border-t border-azul-50 pt-5">
+              <div className="flex items-center justify-between">
                 {paso > 0 ? <button type="button" onClick={() => irA(paso - 1)} className="btn border-[1.5px] border-azul-200 text-azul-600">Anterior</button> : <span />}
                 {paso < PASOS.length - 1
                   ? <button type="button" onClick={() => irA(paso + 1)} className="btn-primario">Siguiente</button>
                   : <button type="button" onClick={enviar} disabled={enviando} className="btn-dorado">{enviando ? 'Enviando…' : corregir ? 'Reenviar solicitud' : 'Enviar solicitud'}</button>}
+              </div>
+              <button type="button" onClick={rellenar} className="self-center rounded-xl border-[1.5px] border-dashed border-azul-200 px-4 py-2 text-sm font-semibold text-azul-500 hover:border-azul-400 hover:text-azul-700">
+                Rellenar este paso con datos de prueba
+              </button>
               </div>
             </>
           )}
