@@ -21,7 +21,11 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo
 import httpx
+
+# "Hoy" es el de Colombia, como en los servicios (GitHub Actions corre en UTC: de 7 p. m. a medianoche ya es mañana).
+HOY = datetime.now(ZoneInfo("America/Bogota")).date()
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
 MAILPIT = (sys.argv[2] if len(sys.argv) > 2 else "http://localhost:8025").rstrip("/")
@@ -157,7 +161,7 @@ H = login(CORREO, "Marta1234")
 me = c.get(f"{A}/afiliados/me", headers=H).json()
 ver("cita antes de aprobar (debe fallar)", c.post(f"{A}/citas", headers=H, json={
     "afiliado_id": me["id"], "especialidad_codigo": "medicina_general", "doctor_id": doc_g["usuario_id"],
-    "punto_atencion_id": sede, "fecha": date.today().isoformat(), "hora": "10:00", "motivo": "Control general"}), 422)
+    "punto_atencion_id": sede, "fecha": HOY.isoformat(), "hora": "10:00", "motivo": "Control general"}), 422)
 ver("aprobación", c.post(f"{A}/afiliados/solicitudes/{me['id']}/aprobar", headers=HA), 200)
 me = c.get(f"{A}/afiliados/me", headers=H).json()
 titular, hija = me["id"], me["beneficiarios"][0]["id"]
@@ -183,12 +187,12 @@ comprobar("la cita aparece en próximas", any(x["id"] == cita_g["id"] for x in m
 
 print("— El doctor atiende")
 if fecha_g != ahora().date().isoformat():
-    movida = sql("E2E_SQL_CITAS", f"UPDATE citas SET fecha = CURRENT_DATE AT TIME ZONE 'America/Bogota' WHERE id = '{cita_g['id']}'")
+    movida = sql("E2E_SQL_CITAS", f"UPDATE citas SET fecha = (now() AT TIME ZONE 'America/Bogota')::date WHERE id = '{cita_g['id']}'")
     print(f"· La cita es el {fecha_g}: {'se movió a hoy para la prueba' if movida is not None else 'sin E2E_SQL_CITAS se omite la atención'}")
     puede_atender = movida is not None
 else:
     puede_atender = True
-agenda = ver("agenda del doctor", c.get(f"{A}/citas/doctor/agenda", headers=HG, params={"desde": date.today().isoformat()}), 200).json()
+agenda = ver("agenda del doctor", c.get(f"{A}/citas/doctor/agenda", headers=HG, params={"desde": HOY.isoformat()}), 200).json()
 comprobar("la cita está en su agenda", any(x["id"] == cita_g["id"] for x in agenda))
 ver("otro doctor no ve la cita", c.get(f"{A}/citas/doctor/citas/{cita_g['id']}", headers=HN), 404)
 ver("otro doctor no abre la historia", c.get(f"{A}/historia/pacientes/{titular}", headers=HN, params={"cita_id": cita_g["id"]}), 403)
