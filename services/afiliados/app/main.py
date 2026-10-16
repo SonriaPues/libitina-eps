@@ -22,7 +22,6 @@ CAMPOS_TITULAR = ("tipo_documento", "numero_documento", "nombres", "apellidos", 
 CAMPOS_BENEF = ("tipo_documento", "numero_documento", "nombres", "apellidos", "fecha_nacimiento", "sexo", "parentesco",
                 "incapacidad_permanente", "pertenencia_etnica", "tiene_discapacidad", "tipo_discapacidad")
 CAMPOS_AFILIACION = ("tipo_cotizante", "categoria", "empleador_nit", "empleador_nombre", "grupo_sisben")
-TEXTO_ESTADO = {"pendiente": "Solicitud en revisión", "activo": "Afiliación aprobada", "rechazado": "Solicitud rechazada"}
 
 
 def ahora():

@@ -1,9 +1,8 @@
 """Sesión y permisos. El Gateway ya validó la firma del JWT; aquí se vuelve a
 validar (defensa en profundidad) y se revisa el rol de quien llama."""
-import secrets
 import jwt
 from fastapi import Depends, Header, HTTPException
-from .config import JWT_SECRET, INTERNAL_TOKEN
+from .config import JWT_SECRET
 
 
 def _decodificar(authorization: str) -> dict:
@@ -21,10 +20,6 @@ def usuario_del_token(authorization: str = Header(default="")) -> dict:
     return _decodificar(authorization)
 
 
-def usuario_opcional(authorization: str = Header(default="")) -> dict | None:
-    """Para endpoints públicos que aprovechan la sesión si existe (ej. radicar una PQRSD)."""
-    return _decodificar(authorization) if authorization.lower().startswith("bearer ") else None
-
 
 def requiere_rol(*roles: str):
     def dependencia(u: dict = Depends(usuario_del_token)) -> dict:
@@ -32,9 +27,3 @@ def requiere_rol(*roles: str):
             raise HTTPException(403, "No tienes permiso para esta acción.")
         return u
     return dependencia
-
-
-def solo_interno(x_internal_token: str = Header(default="")):
-    """Endpoints que solo llaman otros microservicios. El Gateway nunca los expone."""
-    if not INTERNAL_TOKEN or not secrets.compare_digest(x_internal_token, INTERNAL_TOKEN):
-        raise HTTPException(403, "Acceso solo para servicios internos.")

@@ -15,7 +15,7 @@ const DESTACADOS = [
 ];
 
 const COLUMNAS = [
-  ['Salud', [['Agendar cita', '/tramites/proximamente/cita'], ['Resultados de laboratorio', '/tramites/proximamente/resultados'], ['Entrega de medicamentos', '/tramites/proximamente/medicamentos'], ['Solicitar autorización', '/tramites/proximamente/autorizacion']]],
+  ['Salud', [['Agendar cita', '/portal/citas?agendar=1'], ['Resultados de laboratorio', '/tramites/proximamente/resultados'], ['Entrega de medicamentos', '/tramites/proximamente/medicamentos'], ['Solicitar autorización', '/tramites/proximamente/autorizacion']]],
   ['Administrativos', [['Estado de afiliación', '/tramites/estado-de-afiliacion'], ['Certificado de afiliación', '/tramites/certificado'], ['Carné digital', '/tramites/carne-digital'], ['Radicar PQRSD', '/tramites/pqrsd']]],
   ['Consultas', [['Red de IPS', '/red-de-ips'], ['Copagos', '/copagos'], ['Medicamentos cubiertos', '/medicamentos']]],
 ];

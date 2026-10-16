@@ -21,10 +21,6 @@ def usuario_del_token(authorization: str = Header(default="")) -> dict:
     return _decodificar(authorization)
 
 
-def usuario_opcional(authorization: str = Header(default="")) -> dict | None:
-    """Para endpoints públicos que aprovechan la sesión si existe (ej. radicar una PQRSD)."""
-    return _decodificar(authorization) if authorization.lower().startswith("bearer ") else None
-
 
 def requiere_rol(*roles: str):
     def dependencia(u: dict = Depends(usuario_del_token)) -> dict:

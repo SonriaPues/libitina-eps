@@ -18,8 +18,3 @@ def hoy() -> date:
 
 def fecha_larga(d: date) -> str:
     return f"{DIAS[d.weekday()]} {d.day} de {MESES[d.month - 1]} de {d.year}"
-
-
-def hora_corta(h) -> str:
-    sufijo = "a. m." if h.hour < 12 else "p. m."
-    return f"{(h.hour % 12) or 12}:{h.minute:02d} {sufijo}"

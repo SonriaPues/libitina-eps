@@ -18,7 +18,7 @@ export const MENU = [
   { texto: 'Trámites', ruta: '/tramites/pqrsd', hijos: [
     { texto: 'Estado de afiliación', ruta: '/tramites/estado-de-afiliacion' }, { texto: 'Certificado de afiliación', ruta: '/tramites/certificado' },
     { texto: 'Carné digital', ruta: '/tramites/carne-digital' }, { texto: 'PQRSD', ruta: '/tramites/pqrsd' },
-    { texto: 'Agendar cita', ruta: '/tramites/proximamente/cita' }, { texto: 'Resultados de laboratorio', ruta: '/tramites/proximamente/resultados' },
+    { texto: 'Agendar cita', ruta: '/portal/citas?agendar=1' }, { texto: 'Resultados de laboratorio', ruta: '/tramites/proximamente/resultados' },
   ] },
   { texto: 'Red de IPS', ruta: '/red-de-ips' },
   { texto: 'Atención al usuario', ruta: '/atencion-al-usuario' },

@@ -11,7 +11,6 @@ Opcional (para no depender de la hora a la que corre la prueba):
   E2E_SQL_HISTORIA  comando que ejecuta SQL en libitina_historia; confirma que el texto está cifrado.
   BUZON_MAILDIR     si no hay Mailpit, carpeta Maildir donde leer los correos.
 """
-import email
 import mailbox
 import os
 import re
@@ -20,7 +19,6 @@ import subprocess
 import sys
 import time
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 from zoneinfo import ZoneInfo
 import httpx
 

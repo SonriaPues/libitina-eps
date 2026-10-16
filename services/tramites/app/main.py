@@ -11,7 +11,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Depends, HTTPException, Query, Response
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from . import clientes, config
 from .db import engine, get_db
