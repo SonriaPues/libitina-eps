@@ -25,8 +25,9 @@ export default function Citas() {
   const recargar = () => { citas.recargar(); rems.recargar(); };
   const b = base.datos;
   const personas = b ? [{ ...b.af, rol: 'Titular' }, ...b.af.beneficiarios.map((x) => ({ ...x, rol: PARENTESCOS[x.parentesco] }))] : [];
-  const conAgenda = new Set(b?.conAgenda.map((e) => e.codigo));
-  const especialidades = b ? b.esps.filter((e) => conAgenda.has(e.codigo)) : [];
+  const conAgenda = Object.fromEntries((b?.conAgenda ?? []).map((e) => [e.codigo, e]));
+  const especialidades = b ? b.esps.filter((e) => conAgenda[e.codigo]).map((e) => ({ ...e, sedes: conAgenda[e.codigo].sedes })) : [];
+  const sedeInicial = b?.sedes.find((s) => s.ips_id === b.af.ips_id)?.id;
   const cuota = b && b.af.regimen === 'contributivo' ? b.tarifas.find((t) => t.regimen === 'contributivo' && t.categoria === b.af.categoria)?.cuota_moderadora : 0;
   const sede = (id) => b?.sedes.find((s) => s.id === id)?.nombre ?? '';
   const vigentes = (rems.datos ?? []).filter((r) => r.estado === 'vigente');
@@ -42,7 +43,7 @@ export default function Citas() {
 
   const listo = (cita) => {
     setAbierto(null);
-    setAviso(`Listo: cita de ${cita.especialidad} el ${fechaLarga(cita.fecha)} a las ${hora12(cita.hora)}. Te enviamos la confirmación por correo.`);
+    setAviso(`Listo: cita de ${cita.especialidad} el ${fechaLarga(cita.fecha)} a las ${hora12(cita.hora)} con ${cita.doctor}. Te enviamos la confirmación por correo.`);
     recargar();
   };
 
@@ -58,7 +59,7 @@ export default function Citas() {
         {aviso && <Alerta tipo="exito">{aviso}</Alerta>}
 
         {b && abierto && (
-          <Agendador key={abierto.cita?.id ?? abierto.codigo ?? 'nueva'} personas={personas} especialidades={especialidades} sedes={b.sedes}
+          <Agendador key={abierto.cita?.id ?? abierto.codigo ?? 'nueva'} personas={personas} especialidades={especialidades} sedes={b.sedes} sedeInicial={sedeInicial}
             remisiones={rems.datos ?? []} cuota={cuota} reagendar={abierto.cita} inicial={abierto}
             onListo={listo} onCancelar={() => setAbierto(null)} />
         )}

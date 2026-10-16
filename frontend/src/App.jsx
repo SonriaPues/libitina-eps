@@ -36,6 +36,7 @@ import Doctores from './pages/admin/Doctores.jsx';
 import AgendaDoctor from './pages/admin/AgendaDoctor.jsx';
 import Especialidades from './pages/admin/Especialidades.jsx';
 import BandejaPqrsd from './pages/admin/Pqrsd.jsx';
+import Horarios from './pages/admin/Horarios.jsx';
 
 function SubirAlCambiarRuta() {
   const { pathname } = useLocation();
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="/admin" element={<ProtectedRoute rol="admin"><PanelAdmin /></ProtectedRoute>} />
         <Route path="/admin/doctores" element={<ProtectedRoute rol="admin"><Doctores /></ProtectedRoute>} />
         <Route path="/admin/doctores/:id/agenda" element={<ProtectedRoute rol="admin"><AgendaDoctor /></ProtectedRoute>} />
+        <Route path="/admin/horarios" element={<ProtectedRoute rol="admin"><Horarios /></ProtectedRoute>} />
         <Route path="/admin/especialidades" element={<ProtectedRoute rol="admin"><Especialidades /></ProtectedRoute>} />
         <Route path="/admin/pqrsd" element={<ProtectedRoute rol="admin"><BandejaPqrsd /></ProtectedRoute>} />
       </Routes>

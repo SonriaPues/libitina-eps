@@ -55,7 +55,7 @@ export const redApi = real({
 
 export const citasApi = real({
   especialidadesConAgenda: () => api('/citas/especialidades'),
-  disponibilidad: (especialidad, puntoId, desde) => api('/citas/disponibilidad', { auth: true, params: { especialidad, punto_atencion_id: puntoId, desde, dias: 31 } }),
+  disponibilidad: (especialidad, puntoId, desde) => api('/citas/disponibilidad', { auth: true, params: { especialidad, punto_atencion_id: puntoId, desde, dias: 31, resumen: true } }),
   agendar: (d) => api('/citas', { method: 'POST', body: d, auth: true }),
   mias: () => api('/citas/mias', { auth: true }),
   cancelar: (id, motivo) => api(`/citas/${id}/cancelar`, { method: 'POST', body: { motivo }, auth: true }),
@@ -66,6 +66,9 @@ export const citasApi = real({
   doctoresAdmin: () => api('/citas/admin/doctores', { auth: true }),
   agendaAdmin: (doctorId) => api(`/citas/admin/doctores/${doctorId}/agenda`, { auth: true }),
   crearTurno: (doctorId, d) => api(`/citas/admin/doctores/${doctorId}/turnos`, { method: 'POST', body: d, auth: true }),
+  moverTurno: (id, d) => api(`/citas/admin/turnos/${id}`, { method: 'PUT', body: d, auth: true }),
+  malla: (puntoId, desde, dias = 7) => api('/citas/admin/malla', { auth: true, params: { punto_atencion_id: puntoId, desde, dias } }),
+  mallaDoctor: (desde) => api('/citas/doctor/malla', { auth: true, params: { desde } }),
   borrarTurno: (id) => api(`/citas/admin/turnos/${id}`, { method: 'DELETE', auth: true }),
   crearBloqueo: (doctorId, d) => api(`/citas/admin/doctores/${doctorId}/excepciones`, { method: 'POST', body: d, auth: true }),
   borrarBloqueo: (id) => api(`/citas/admin/excepciones/${id}`, { method: 'DELETE', auth: true }),

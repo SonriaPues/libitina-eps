@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 class AgendarIn(BaseModel):
     afiliado_id: uuid.UUID                 # el titular o uno de sus beneficiarios
     especialidad_codigo: str = Field(max_length=40)
-    doctor_id: uuid.UUID
+    doctor_id: Optional[uuid.UUID] = None   # sin doctor: se asigna el profesional libre con menos citas ese día
     punto_atencion_id: uuid.UUID
     fecha: date
     hora: time
@@ -15,7 +15,7 @@ class AgendarIn(BaseModel):
 
 
 class ReagendarIn(BaseModel):
-    doctor_id: uuid.UUID
+    doctor_id: Optional[uuid.UUID] = None
     punto_atencion_id: uuid.UUID
     fecha: date
     hora: time
@@ -25,19 +25,27 @@ class CancelarIn(BaseModel):
     motivo: str = Field(min_length=5, max_length=500)
 
 
-class TurnoIn(BaseModel):
+class TurnoCambio(BaseModel):
+    """Mover o estirar un turno (desde la malla del administrador)."""
     dia_semana: int = Field(ge=0, le=6)
     hora_inicio: time
     hora_fin: time
-    punto_atencion_id: uuid.UUID
 
     @model_validator(mode="after")
     def orden(self):
-        if self.hora_fin <= self.hora_inicio:
-            raise ValueError("La hora de fin debe ser posterior a la de inicio.")
-        if self.hora_inicio.hour < 6 or self.hora_fin.hour > 21 or (self.hora_fin.hour == 21 and self.hora_fin.minute > 0):
-            raise ValueError("Los turnos van entre las 6:00 a. m. y las 9:00 p. m.")
-        return self
+        return validar_rango(self)
+
+
+class TurnoIn(TurnoCambio):
+    punto_atencion_id: uuid.UUID
+
+
+def validar_rango(t):
+    if t.hora_fin <= t.hora_inicio:
+        raise ValueError("La hora de fin debe ser posterior a la de inicio.")
+    if t.hora_inicio.hour < 6 or t.hora_fin.hour > 21 or (t.hora_fin.hour == 21 and t.hora_fin.minute > 0):
+        raise ValueError("Los turnos van entre las 6:00 a. m. y las 9:00 p. m.")
+    return t
 
 
 class ExcepcionIn(BaseModel):

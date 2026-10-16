@@ -21,7 +21,7 @@ from .db import engine, get_db
 from .eventos import notificar
 from .migrar import aplicar
 from .models import Doctor, Turno, Excepcion, Cita, ACTIVAS
-from .schemas import AgendarIn, ReagendarIn, CancelarIn, TurnoIn, ExcepcionIn
+from .schemas import AgendarIn, ReagendarIn, CancelarIn, TurnoIn, TurnoCambio, ExcepcionIn
 from .seguridad import requiere_rol, solo_interno
 from .tiempo import ahora, hoy, fecha_larga, hora_corta
 
@@ -103,17 +103,25 @@ def salud(db: Session = Depends(get_db)):
 # ---------------- Afiliado ----------------
 @app.get("/citas/especialidades", tags=["Agendar"])
 def especialidades_con_agenda(db: Session = Depends(get_db)):
-    """Especialidades que hoy tienen al menos un profesional activo con turnos."""
-    filas = db.execute(select(Doctor.especialidad_codigo, Doctor.especialidad).join(Turno, Turno.doctor_id == Doctor.doctor_id)
-                       .where(Doctor.activo, Turno.activo).distinct()).all()
-    return [{"codigo": c, "nombre": n} for c, n in sorted(filas, key=lambda f: f[1])]
+    """Especialidades que hoy tienen al menos un profesional activo con turnos, y en qué sedes."""
+    filas = db.execute(select(Doctor.especialidad_codigo, Doctor.especialidad, Turno.punto_atencion_id)
+                       .join(Turno, Turno.doctor_id == Doctor.doctor_id).where(Doctor.activo, Turno.activo).distinct()).all()
+    esp = {}
+    for c, n, p in filas:
+        esp.setdefault(c, {"codigo": c, "nombre": n, "sedes": []})["sedes"].append(p)
+    return sorted(esp.values(), key=lambda e: e["nombre"])
 
 
 @app.get("/citas/disponibilidad", tags=["Agendar"])
 def disponibilidad(especialidad: str = Query(max_length=40), punto_atencion_id: str | None = None,
-                   desde: date | None = None, dias: int = Query(default=14, ge=1, le=31),
+                   desde: date | None = None, dias: int = Query(default=14, ge=1, le=31), resumen: bool = False,
                    _: dict = Depends(requiere_rol("afiliado", "admin")), db: Session = Depends(get_db)):
-    return agenda.disponibilidad(db, especialidad, desde or hoy(), dias, punto_atencion_id)
+    """resumen=true: solo las horas libres (sin repetir y sin nombres de profesionales)."""
+    dias_ = agenda.disponibilidad(db, especialidad, desde or hoy(), dias, punto_atencion_id)
+    if resumen:
+        for d in dias_:
+            d.pop("horarios")
+    return dias_
 
 
 @app.post("/citas", status_code=201, tags=["Agendar"])
@@ -121,7 +129,8 @@ def agendar(datos: AgendarIn, u: dict = Depends(solo_afiliado), db: Session = De
     grupo = clientes.grupo_de_usuario(u["sub"])
     paciente = paciente_del_grupo(grupo, datos.afiliado_id)
     esp = clientes.especialidad(datos.especialidad_codigo)
-    d = obtener(db, Doctor, datos.doctor_id, "Profesional no encontrado.")
+    d = (obtener(db, Doctor, datos.doctor_id, "Profesional no encontrado.") if datos.doctor_id
+         else agenda.elegir_doctor(db, esp["codigo"], datos.punto_atencion_id, datos.fecha, datos.hora))
     if d.especialidad_codigo != esp["codigo"]:
         raise HTTPException(422, "El profesional no atiende esa especialidad.")
     hora_fin = agenda.validar_horario(db, d, datos.punto_atencion_id, datos.fecha, datos.hora)
@@ -193,7 +202,8 @@ def cancelar(cita_id: str, datos: CancelarIn, u: dict = Depends(requiere_rol("af
 @app.post("/citas/{cita_id}/reagendar", tags=["Mis citas"])
 def reagendar(cita_id: str, datos: ReagendarIn, u: dict = Depends(solo_afiliado), db: Session = Depends(get_db)):
     anterior = cita_cancelable(db, cita_id, u)
-    d = obtener(db, Doctor, datos.doctor_id, "Profesional no encontrado.")
+    d = (obtener(db, Doctor, datos.doctor_id, "Profesional no encontrado.") if datos.doctor_id
+         else agenda.elegir_doctor(db, anterior.especialidad_codigo, datos.punto_atencion_id, datos.fecha, datos.hora))
     if d.especialidad_codigo != anterior.especialidad_codigo:
         raise HTTPException(422, "Solo puedes reagendar con un profesional de la misma especialidad.")
     hora_fin = agenda.validar_horario(db, d, datos.punto_atencion_id, datos.fecha, datos.hora)
@@ -222,6 +232,13 @@ def reagendar(cita_id: str, datos: ReagendarIn, u: dict = Depends(solo_afiliado)
 
 
 # ---------------- Doctor ----------------
+@app.get("/citas/doctor/malla", tags=["Doctor"])
+def malla_doctor(desde: date | None = None, dias: int = Query(default=7, ge=1, le=7), u: dict = Depends(solo_doctor),
+                 db: Session = Depends(get_db)):
+    d = obtener(db, Doctor, u["sub"], "Tu agenda todavía no está lista. Intenta en unos minutos.")
+    return malla(db, [d], desde or hoy(), dias)
+
+
 @app.get("/citas/doctor/agenda", tags=["Doctor"])
 def agenda_del_doctor(desde: date | None = None, hasta: date | None = None, u: dict = Depends(solo_doctor),
                       db: Session = Depends(get_db)):
@@ -298,12 +315,75 @@ def crear_turno(doctor_id: str, datos: TurnoIn, db: Session = Depends(get_db)):
     return {"id": t.id}
 
 
+@app.put("/citas/admin/turnos/{turno_id}", dependencies=[Depends(solo_admin)], tags=["Administración"])
+def cambiar_turno(turno_id: str, datos: TurnoCambio, db: Session = Depends(get_db)):
+    """Mover o estirar un turno. No se permite si deja citas agendadas por fuera."""
+    t = obtener(db, Turno, turno_id, "Turno no encontrado.")
+    if not t.activo:
+        raise HTTPException(404, "Turno no encontrado.")
+    cruces = db.scalars(select(Turno).where(Turno.doctor_id == t.doctor_id, Turno.activo, Turno.id != t.id,
+                                            Turno.dia_semana == datos.dia_semana, Turno.hora_inicio < datos.hora_fin,
+                                            Turno.hora_fin > datos.hora_inicio)).first()
+    if cruces:
+        raise HTTPException(409, "Ese turno se cruza con otro del mismo día.")
+    fuera = agenda.citas_por_fuera(db, t, datos.model_dump())
+    if fuera:
+        raise HTTPException(409, agenda.aviso_citas(fuera, "mover el turno"))
+    t.dia_semana, t.hora_inicio, t.hora_fin = datos.dia_semana, datos.hora_inicio, datos.hora_fin
+    db.commit()
+    return turno_out(t)
+
+
 @app.delete("/citas/admin/turnos/{turno_id}", status_code=204, dependencies=[Depends(solo_admin)], tags=["Administración"])
 def borrar_turno(turno_id: str, db: Session = Depends(get_db)):
-    """Las citas ya agendadas en ese turno se conservan."""
+    """No se permite quitar un turno que tiene citas agendadas."""
     t = obtener(db, Turno, turno_id, "Turno no encontrado.")
+    fuera = agenda.citas_por_fuera(db, t, None)
+    if fuera:
+        raise HTTPException(409, agenda.aviso_citas(fuera, "quitar el turno"))
     t.activo = False
     db.commit()
+
+
+def turno_out(t: Turno) -> dict:
+    return {"id": t.id, "doctor_id": t.doctor_id, "dia_semana": t.dia_semana, "hora_inicio": t.hora_inicio.strftime("%H:%M"),
+            "hora_fin": t.hora_fin.strftime("%H:%M"), "punto_atencion_id": t.punto_atencion_id}
+
+
+def malla(db: Session, doctores: list[Doctor], desde: date, dias: int, punto_id=None, con_paciente=True) -> dict:
+    """Turnos, bloqueos y citas de varios doctores en un rango: alimenta las mallas semanal y diaria."""
+    ids = [d.doctor_id for d in doctores]
+    hasta = desde + timedelta(days=dias - 1)
+    qt = select(Turno).where(Turno.activo, Turno.doctor_id.in_(ids))
+    qc = select(Cita).where(Cita.doctor_id.in_(ids), Cita.fecha.between(desde, hasta), Cita.estado.notin_(["reagendada", "cancelada"]))
+    if punto_id:
+        qt, qc = qt.where(Turno.punto_atencion_id == punto_id), qc.where(Cita.punto_atencion_id == punto_id)
+    return {
+        "desde": desde, "hasta": hasta,
+        "doctores": [{"doctor_id": d.doctor_id, "nombre": d.nombre_completo, "especialidad": d.especialidad,
+                      "especialidad_codigo": d.especialidad_codigo, "duracion_cita_min": d.duracion_cita_min, "activo": d.activo}
+                     for d in doctores],
+        "turnos": [turno_out(t) for t in db.scalars(qt.order_by(Turno.dia_semana, Turno.hora_inicio))],
+        "excepciones": [{"id": e.id, "doctor_id": e.doctor_id, "fecha_inicio": e.fecha_inicio, "fecha_fin": e.fecha_fin, "motivo": e.motivo}
+                        for e in db.scalars(select(Excepcion).where(Excepcion.doctor_id.in_(ids), Excepcion.fecha_fin >= desde,
+                                                                    Excepcion.fecha_inicio <= hasta))],
+        "citas": [{"id": c.id, "doctor_id": c.doctor_id, "fecha": c.fecha, "hora_inicio": c.hora_inicio.strftime("%H:%M"),
+                   "hora_fin": c.hora_fin.strftime("%H:%M"), "estado": c.estado, "especialidad": c.especialidad,
+                   "punto_atencion_id": c.punto_atencion_id, **({"paciente": c.paciente_nombre} if con_paciente else {})}
+                  for c in db.scalars(qc.order_by(Cita.fecha, Cita.hora_inicio))],
+    }
+
+
+@app.get("/citas/admin/malla", dependencies=[Depends(solo_admin)], tags=["Administración"])
+def malla_admin(punto_atencion_id: str, desde: date | None = None, dias: int = Query(default=7, ge=1, le=7),
+                especialidad: str | None = None, db: Session = Depends(get_db)):
+    """Malla de una sede: los doctores con turnos en ella (o que la tienen como sede principal)."""
+    con_turno = select(Turno.doctor_id).where(Turno.activo, Turno.punto_atencion_id == punto_atencion_id)
+    q = select(Doctor).where((Doctor.doctor_id.in_(con_turno)) | (Doctor.sede_principal_id == punto_atencion_id))
+    if especialidad:
+        q = q.where(Doctor.especialidad_codigo == especialidad)
+    doctores = list(db.scalars(q.order_by(Doctor.especialidad, Doctor.nombre_completo)))
+    return malla(db, doctores, desde or hoy(), dias, punto_atencion_id)
 
 
 @app.post("/citas/admin/doctores/{doctor_id}/excepciones", status_code=201, dependencies=[Depends(solo_admin)], tags=["Administración"])

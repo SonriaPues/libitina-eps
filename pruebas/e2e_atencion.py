@@ -185,6 +185,30 @@ ver("especialista sin remisión (debe fallar)", c.post(f"{A}/citas", headers=H, 
 mias = ver("mis citas", c.get(f"{A}/citas/mias", headers=H), 200).json()
 comprobar("la cita aparece en próximas", any(x["id"] == cita_g["id"] for x in mias["proximas"]))
 
+print("— Asignación automática y malla de horarios")
+resumen = ver("horas libres sin nombres", c.get(f"{A}/citas/disponibilidad", headers=H, params={
+    "especialidad": "medicina_general", "punto_atencion_id": slot["punto_atencion_id"], "resumen": True}), 200).json()
+comprobar("el resumen no trae profesionales", resumen and "horarios" not in resumen[0] and resumen[0]["horas"], str(resumen[:1])[:200])
+dia_h = resumen[0]
+hora_h = next(x["hora"] for x in dia_h["horas"] if (dia_h["fecha"], x["hora"]) != (fecha_g, slot["hora"]))
+cita_h = ver("agendar sin elegir profesional", c.post(f"{A}/citas", headers=H, json={
+    "afiliado_id": hija, "especialidad_codigo": "medicina_general", "punto_atencion_id": slot["punto_atencion_id"],
+    "fecha": dia_h["fecha"], "hora": hora_h, "motivo": "Control de crecimiento"}), 201).json()
+comprobar("el sistema asignó un profesional", bool(cita_h.get("doctor")) and cita_h["especialidad_codigo"] == "medicina_general", cita_h.get("doctor"))
+malla = ver("malla de la sede", c.get(f"{A}/citas/admin/malla", headers=HA, params={
+    "punto_atencion_id": slot["punto_atencion_id"], "desde": fecha_g, "dias": 1}), 200).json()
+comprobar("la malla trae la cita y el turno", any(x["id"] == cita_g["id"] for x in malla["citas"])
+          and any(t["doctor_id"] == doc_g["usuario_id"] for t in malla["turnos"]))
+dia_sem = date.fromisoformat(fecha_g).weekday()
+turno_g = next(t for t in malla["turnos"] if t["doctor_id"] == doc_g["usuario_id"] and t["dia_semana"] == dia_sem)
+corto = {"dia_semana": dia_sem, **({"hora_inicio": "14:00", "hora_fin": "21:00"} if slot["hora"] < "13:00" else {"hora_inicio": "06:00", "hora_fin": "07:00"})}
+r = ver("acortar un turno con citas (debe fallar)", c.put(f"{A}/citas/admin/turnos/{turno_g['id']}", headers=HA, json=corto), 409)
+comprobar("el aviso explica qué citas quedarían por fuera", "por fuera" in r.json()["detail"], r.json()["detail"])
+ver("quitar un turno con citas (debe fallar)", c.delete(f"{A}/citas/admin/turnos/{turno_g['id']}", headers=HA), 409)
+ver("estirar o dejar igual un turno", c.put(f"{A}/citas/admin/turnos/{turno_g['id']}", headers=HA, json={
+    "dia_semana": dia_sem, "hora_inicio": turno_g["hora_inicio"], "hora_fin": turno_g["hora_fin"]}), 200)
+ver("cancelar la cita de la hija", c.post(f"{A}/citas/{cita_h['id']}/cancelar", headers=H, json={"motivo": "Ya no la necesita"}), 200)
+
 print("— El doctor atiende")
 if fecha_g != ahora().date().isoformat():
     movida = sql("E2E_SQL_CITAS", f"UPDATE citas SET fecha = (now() AT TIME ZONE 'America/Bogota')::date WHERE id = '{cita_g['id']}'")

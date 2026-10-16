@@ -19,6 +19,7 @@ const MENUS = {
   admin: [
     ['Afiliaciones', '/admin', Icono.familia],
     ['Doctores y agendas', '/admin/doctores', Icono.doctor],
+    ['Horarios', '/admin/horarios', Icono.malla],
     ['Especialidades', '/admin/especialidades', Icono.estrella],
     ['PQRSD', '/admin/pqrsd', Icono.bandeja],
     ['Red de IPS', '/red-de-ips', Icono.ubicacion],

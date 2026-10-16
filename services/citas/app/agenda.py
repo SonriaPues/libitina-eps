@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from . import config
 from .models import Doctor, Turno, Excepcion, Cita, ACTIVAS
-from .tiempo import ahora, hoy, fecha_larga
+from .tiempo import ahora, hoy, fecha_larga, hora_corta
 
 
 def sumar_minutos(h: time, minutos: int) -> time:
@@ -56,7 +56,11 @@ def disponibilidad(db: Session, codigo: str, desde: date, dias: int, punto_id=No
                                  "punto_atencion_id": str(t.punto_atencion_id)})
         if horarios:
             horarios.sort(key=lambda x: (x["hora"], x["doctor"]))
-            resultado.append({"fecha": dia.isoformat(), "dia": fecha_larga(dia), "horarios": horarios})
+            libres = {}
+            for x in horarios:
+                libres[(x["hora"], x["punto_atencion_id"])] = libres.get((x["hora"], x["punto_atencion_id"]), 0) + 1
+            horas = [{"hora": h, "punto_atencion_id": p, "profesionales": n} for (h, p), n in sorted(libres.items())]
+            resultado.append({"fecha": dia.isoformat(), "dia": fecha_larga(dia), "horas": horas, "horarios": horarios})
         dia += timedelta(days=1)
     return resultado
 
@@ -86,3 +90,49 @@ def guardar_doctor(db: Session, copia: dict) -> None:
     stmt = insert(Doctor).values(**valores)
     db.execute(stmt.on_conflict_do_update(index_elements=[Doctor.doctor_id],
                                           set_={**{k: stmt.excluded[k] for k in valores if k != "doctor_id"}, "actualizado_en": func.now()}))
+
+
+def elegir_doctor(db: Session, codigo: str, punto_id, dia: date, h: time) -> Doctor:
+    """Asignación automática: entre los profesionales de la especialidad con ese horario libre en esa sede,
+    el que tenga menos citas ese día (así la carga se reparte)."""
+    candidatos = []
+    for d in db.scalars(select(Doctor).where(Doctor.activo, Doctor.especialidad_codigo == codigo)):
+        try:
+            validar_horario(db, d, punto_id, dia, h)
+        except HTTPException:
+            continue
+        ocupado = db.scalar(select(Cita.id).where(Cita.doctor_id == d.doctor_id, Cita.fecha == dia, Cita.hora_inicio == h,
+                                                  Cita.estado.in_(ACTIVAS)))
+        if ocupado:
+            continue
+        carga = db.scalar(select(func.count()).select_from(Cita).where(Cita.doctor_id == d.doctor_id, Cita.fecha == dia,
+                                                                       Cita.estado.in_(ACTIVAS)))
+        candidatos.append((carga, d.nombre_completo, d))
+    if not candidatos:
+        raise HTTPException(409, "Ese horario ya no está disponible. Elige otro.")
+    return min(candidatos, key=lambda x: (x[0], x[1]))[2]
+
+
+def cubierta(c: Cita, turnos: list) -> bool:
+    return any(t.dia_semana == c.fecha.weekday() and t.punto_atencion_id == c.punto_atencion_id
+               and t.hora_inicio <= c.hora_inicio and c.hora_fin <= t.hora_fin for t in turnos)
+
+
+def citas_por_fuera(db: Session, turno: Turno, nuevo: dict | None) -> list[Cita]:
+    """Citas futuras que hoy cubre `turno` y que quedarían sin turno si se cambia por `nuevo` (None = se quita)."""
+    otros = [t for t in db.scalars(select(Turno).where(Turno.activo, Turno.doctor_id == turno.doctor_id, Turno.id != turno.id))]
+    if nuevo:
+        otros.append(Turno(doctor_id=turno.doctor_id, punto_atencion_id=turno.punto_atencion_id, **nuevo))
+    citas = db.scalars(select(Cita).where(Cita.doctor_id == turno.doctor_id, Cita.estado.in_(ACTIVAS), Cita.fecha >= hoy(),
+                                          Cita.punto_atencion_id == turno.punto_atencion_id).order_by(Cita.fecha, Cita.hora_inicio))
+    return [c for c in citas if cubierta(c, [turno]) and not cubierta(c, otros)]
+
+
+def aviso_citas(citas: list[Cita], accion: str) -> str:
+    ejemplos = ", ".join(f"{fecha_larga(c.fecha).split(' de 20')[0]} a las {hora_corta(c.hora_inicio)}" for c in citas[:3])
+    mas = f" y {len(citas) - 3} más" if len(citas) > 3 else ""
+    if len(citas) == 1:
+        return (f"No se puede {accion}: este turno tiene 1 cita agendada que quedaría por fuera ({ejemplos}). "
+                "Reagéndala o bloquea ese día primero.")
+    return (f"No se puede {accion}: este turno tiene {len(citas)} citas agendadas que quedarían por fuera ({ejemplos}{mas}). "
+            "Reagéndalas o bloquea esos días primero.")

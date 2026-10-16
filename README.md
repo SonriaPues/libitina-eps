@@ -179,10 +179,12 @@ En Azure for Students, sobre una máquina virtual con Docker Compose. Paso a pas
 | GET | /afiliados/regimenes · /tarifas · /medicamentos · /plan-beneficios | Público |
 | GET | /prestadores/ips · /prestadores/ips/{id} · /puntos-atencion · /especialidades · /doctores | Público |
 | GET · POST · PUT | /prestadores/admin/doctores · /prestadores/especialidades | Admin |
-| GET | /citas/especialidades · /citas/disponibilidad | Afiliado |
+| GET | /citas/especialidades · /citas/disponibilidad?resumen=true | Afiliado (horas libres sin nombres; el profesional se asigna al agendar) |
 | GET · POST | /citas/mias · /citas · /citas/{id}/cancelar · /citas/{id}/reagendar | Afiliado |
 | GET · POST | /citas/doctor/agenda · /citas/doctor/citas/{id} · /citas/{id}/no-asistio | Doctor |
 | GET · POST · DELETE | /citas/admin/doctores/{id}/agenda · /turnos · /excepciones | Admin |
+| GET · PUT | /citas/admin/malla?punto_atencion_id= · /citas/admin/turnos/{id} | Admin (malla por sede; mover o estirar turnos) |
+| GET | /citas/doctor/malla | Doctor (su semana en calendario) |
 | GET · POST | /historia/pacientes/{id}?cita_id= · /historia/consultas · /alergias · /antecedentes | Doctor |
 | GET | /historia/mia · /historia/mia/accesos | Afiliado |
 | POST · GET | /tramites/remisiones · /tramites/remisiones/mias | Doctor · Afiliado |

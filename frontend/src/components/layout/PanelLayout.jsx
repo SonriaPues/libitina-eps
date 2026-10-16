@@ -1,21 +1,21 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Marca } from '../ui/Marca.jsx';
-import { Icono } from '../ui/Iconos.jsx';
-import { useAuth } from '../../context/AuthContext.jsx';
+import MenuUsuario from './MenuUsuario.jsx';
 
-// Estructura tipo dashboard para el portal del afiliado (claro) y el panel de admin (oscuro).
+// Estructura tipo dashboard para el portal del afiliado (claro), del doctor y del administrador (oscuros).
+// La cuenta y "Cerrar sesión" van siempre arriba a la derecha.
 export default function PanelLayout({ oscuro = false, etiqueta = null, menu, children }) {
-  const { cerrarSesion } = useAuth();
-  const navigate = useNavigate();
-  const salir = () => { cerrarSesion(); navigate('/iniciar-sesion'); };
   return (
     <div className="flex min-h-screen flex-col bg-fondo lg:flex-row">
-      <aside className={`flex shrink-0 flex-col gap-7 px-4 py-6 lg:min-h-screen lg:w-64 ${oscuro ? 'bg-azul-950' : 'border-b border-azul-100 bg-white lg:border-b-0 lg:border-r'}`}>
-        <div className="px-2">
-          <Marca alto={36} claro={oscuro} conPlaca={oscuro} texto="text-[17px]" />
-          {oscuro && <span className="mt-1 block pl-[60px] text-xs text-azul-200">{etiqueta || 'Administración'}</span>}
+      <aside className={`flex shrink-0 flex-col gap-5 px-4 py-4 lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:gap-7 lg:py-6 ${oscuro ? 'bg-azul-950' : 'border-b border-azul-100 bg-white lg:border-b-0 lg:border-r'}`}>
+        <div className="flex items-center justify-between gap-3 px-2">
+          <Link to="/" className="flex flex-col" aria-label="Ir al inicio">
+            <Marca alto={36} claro={oscuro} conPlaca={oscuro} texto="text-[17px]" />
+            {oscuro && <span className="mt-1 block pl-[60px] text-xs text-azul-200">{etiqueta || 'Administración'}</span>}
+          </Link>
+          <div className="lg:hidden"><MenuUsuario oscuro={oscuro} /></div>
         </div>
-        <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Panel">
+        <nav className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-y-auto" aria-label="Panel">
           {menu.map((m) => (
             <Link key={m.texto} to={m.ruta || '#'} aria-current={m.activo ? 'page' : undefined}
               className={`flex shrink-0 items-center justify-between gap-3 rounded-[10px] px-3.5 py-3 text-[15px] ${m.activo
@@ -26,14 +26,13 @@ export default function PanelLayout({ oscuro = false, etiqueta = null, menu, chi
             </Link>
           ))}
         </nav>
-        <button type="button" onClick={salir} className={`mt-auto hidden items-center gap-3 px-3.5 py-3 text-left text-[15px] lg:flex ${oscuro ? 'text-azul-200 hover:text-white' : 'text-azul-700 hover:text-azul-900'}`}>
-          <Icono.salir width={20} height={20} />Cerrar sesión
-        </button>
       </aside>
-      <main className="flex-1 px-5 py-8 md:px-10 lg:px-12">
-        {children}
-        <button type="button" onClick={salir} className="mt-8 text-sm font-semibold text-azul-600 lg:hidden">Cerrar sesión</button>
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-40 hidden h-16 items-center justify-end border-b border-azul-100 bg-white/90 px-10 backdrop-blur lg:flex">
+          <MenuUsuario />
+        </header>
+        <main className="flex-1 px-5 py-8 md:px-10 lg:px-12">{children}</main>
+      </div>
     </div>
   );
 }
