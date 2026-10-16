@@ -95,6 +95,16 @@ def salud():
 
 
 # ---------------- IPS y sedes (público) ----------------
+@app.get("/prestadores/estadisticas", tags=["IPS"])
+def estadisticas_publicas(db: Session = Depends(get_db)):
+    """Pública: tamaño de la red (sedes, municipios y profesionales activos). Alimenta la página de inicio."""
+    sedes = db.scalars(select(PuntoAtencion).where(PuntoAtencion.activo)).all()
+    profesionales = db.execute(select(PerfilDoctor.id, Especialidad.requiere_remision).outerjoin(Especialidad, PerfilDoctor.especialidad_id == Especialidad.id)
+                               .where(PerfilDoctor.estado != "inactivo")).all()
+    return {"sedes": len(sedes), "municipios": len({s.ciudad for s in sedes}), "profesionales": len(profesionales),
+            "especialistas": sum(1 for _, rem in profesionales if rem)}
+
+
 @app.get("/prestadores/ips", tags=["IPS"])
 def listar_ips(ciudad: str = "", servicio: str = "", q: str = "", db: Session = Depends(get_db)):
     consulta = select(Ips).where(Ips.activa)

@@ -243,6 +243,13 @@ def rechazar(afiliado_id: str, datos: RechazoIn, admin: dict = Depends(requiere_
 
 
 # ---------------- Catálogos públicos ----------------
+@app.get("/afiliados/estadisticas", tags=["Catálogos"])
+def estadisticas_publicas(db: Session = Depends(get_db)):
+    """Pública: cuántas personas (titulares y beneficiarios) tienen la afiliación activa. Alimenta la página de inicio."""
+    activos = db.scalar(select(func.count()).select_from(Afiliado).where(Afiliado.estado == "activo", Afiliado.eliminado_en.is_(None)))
+    return {"afiliados_activos": activos or 0}
+
+
 @app.get("/afiliados/regimenes", tags=["Catálogos"])
 def regimenes(db: Session = Depends(get_db)):
     return [{"codigo": r.codigo, "nombre": r.nombre, "descripcion": r.descripcion} for r in db.scalars(select(Regimen))]

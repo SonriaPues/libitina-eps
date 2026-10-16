@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Foto from '../components/ui/Foto.jsx';
 import { Acordeon } from '../components/ui/Controles.jsx';
 import { Icono } from '../components/ui/Iconos.jsx';
 import { FAQS } from '../data/faqs.js';
 import { CONTACTO } from '../data/sitio.js';
+import { IPS } from '../data/ips.js';
+import { api, USE_MOCK } from '../api/client.js';
 
 const DESTACADOS = [
   { titulo: 'Consulta el estado de tu afiliación', ruta: '/tramites/estado-de-afiliacion', img: '/images/inicio/inicio-acceso-estado.jpg' },
@@ -25,9 +27,45 @@ const PASOS = [
 ];
 
 // Cifras pendientes de definir: reemplaza por las reales.
-const CIFRAS = [['[000]', 'Afiliados'], ['6', 'Sedes en la red'], ['3', 'Municipios'], ['[000]', 'Especialistas']];
+// Cifras reales de la red: salen de Afiliados y de Red de Prestadores (consultas públicas).
+// Mientras cargan (o si el backend no responde) se muestran las que se pueden calcular con las sedes locales.
+const BASE_CIFRAS = { afiliados_activos: null, sedes: IPS.length, municipios: new Set(IPS.map((i) => i.ciudad)).size, profesionales: null, especialistas: null };
+const ETIQUETAS = [['afiliados_activos', 'Afiliados activos'], ['sedes', 'Sedes en la red'], ['municipios', 'Municipios'],
+  ['profesionales', 'Profesionales de la salud'], ['especialistas', 'Especialistas']];
+
+function useCifras() {
+  const [c, setC] = useState(BASE_CIFRAS);
+  useEffect(() => {
+    if (USE_MOCK) return;
+    Promise.allSettled([api('/afiliados/estadisticas'), api('/prestadores/estadisticas')]).then(([a, p]) =>
+      setC((x) => ({ ...x, ...(a.status === 'fulfilled' ? a.value : {}), ...(p.status === 'fulfilled' ? p.value : {}) })));
+  }, []);
+  return c;
+}
+
+// Cuenta desde 0 hasta el valor cuando la sección entra en pantalla (sin animación si el usuario la desactivó).
+function Contador({ valor }) {
+  const [mostrado, setMostrado] = useState(0);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (valor == null) return undefined;
+    const quieto = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (quieto || !('IntersectionObserver' in window)) { setMostrado(valor); return undefined; }
+    let marco;
+    const animar = () => {
+      const inicio = performance.now();
+      const paso = (t) => { const k = Math.min(1, (t - inicio) / 1200); setMostrado(Math.round(valor * (1 - (1 - k) ** 3))); if (k < 1) marco = requestAnimationFrame(paso); };
+      marco = requestAnimationFrame(paso);
+    };
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { animar(); obs.disconnect(); } }, { threshold: 0.4 });
+    if (ref.current) obs.observe(ref.current);
+    return () => { obs.disconnect(); cancelAnimationFrame(marco); };
+  }, [valor]);
+  return <span ref={ref} aria-label={valor == null ? 'cargando' : String(valor)}>{valor == null ? '—' : mostrado.toLocaleString('es-CO')}</span>;
+}
 
 export default function Inicio() {
+  const cifras = useCifras();
   const [paso, setPaso] = useState(0);
   const [faq, setFaq] = useState(0);
   const faqs = FAQS.slice(0, 5).map((f, i) => ({ ...f, id: i }));
@@ -89,10 +127,10 @@ export default function Inicio() {
           <div className="absolute inset-0 bg-azul-950/80" />
           <div className="relative flex flex-col gap-11">
             <h2 className="max-w-[520px] text-3xl font-extrabold leading-tight text-white md:text-4xl">Una red que crece contigo</h2>
-            <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
-              {CIFRAS.map(([n, t]) => (
+            <div className="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-5">
+              {ETIQUETAS.map(([k, t]) => (
                 <div key={t} className="flex flex-col gap-2 border-t-2 border-dorado-400 pt-5">
-                  <span className="font-display text-4xl font-extrabold text-white md:text-[44px]">{n}</span>
+                  <span className="font-display text-4xl font-extrabold text-white md:text-[44px]"><Contador valor={cifras[k]} /></span>
                   <span className="text-[15px] text-azul-200">{t}</span>
                 </div>
               ))}
