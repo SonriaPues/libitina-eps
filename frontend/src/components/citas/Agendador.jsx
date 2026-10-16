@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alerta, Campo } from '../ui/Controles.jsx';
 import { Cargando, Insignia } from '../ui/Piezas.jsx';
 import { Icono } from '../ui/Iconos.jsx';
@@ -40,14 +40,17 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
 
   const hoy = hoyIso();
   const fechas = useMemo(() => Array.from({ length: TOTAL_DIAS }, (_, i) => sumarDias(hoy, i)), [hoy]);
+  const pedido = useRef(0);       // descarta respuestas de una sede o especialidad que ya no está elegida
   const cargar = () => {
+    const mio = ++pedido.current;
     setDias(null); setDia(null); setHora(null); setError(''); setInicio(0);
     if (!codigo || bloqueada || !sede) return;
     citasApi.disponibilidad(codigo, sede).then((d) => {
+      if (mio !== pedido.current) return;
       setDias(d); setDia(d[0]?.fecha ?? null);
       const i = d[0] ? fechas.indexOf(d[0].fecha) : 0;            // muestra la semana del primer día con cupo
       setInicio(Math.max(0, Math.min(Math.floor(i / DIAS_VISIBLES) * DIAS_VISIBLES, TOTAL_DIAS - DIAS_VISIBLES)));
-    }).catch((e) => setError(e.message));
+    }).catch((e) => { if (mio === pedido.current) setError(e.message); });
   };
   useEffect(cargar, [codigo, sede, bloqueada]); // eslint-disable-line react-hooks/exhaustive-deps
 

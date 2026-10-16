@@ -24,15 +24,16 @@ export default function Horarios() {
 
   useEffect(() => { if (!sede && sedes.datos?.length) setSede(sedes.datos[0].id); }, [sedes.datos, sede]);
   const desde = vista === 'semana' ? lunesDe(fecha) : fecha;
-  const malla = useDatos(() => (sede ? citasApi.malla(sede, desde, vista === 'semana' ? 7 : 1) : Promise.resolve(null)), [sede, desde, vista]);
+  const clave = `${sede}|${desde}|${vista}`;
+  const malla = useDatos(() => (sede ? citasApi.malla(sede, desde, vista === 'semana' ? 7 : 1).then((m) => ({ ...m, clave })) : Promise.resolve(null)), [clave]);
   const fechas = Array.from({ length: 7 }, (_, i) => sumarDias(desde, i));
 
   const datos = useMemo(() => {
-    if (!malla.datos) return null;
+    if (!malla.datos || malla.datos.clave !== clave) return null;     // aún no llega la sede o la fecha elegida
     const docs = malla.datos.doctores.filter((d) => !especialidad || d.especialidad_codigo === especialidad);
     return { ...malla.datos, doctores: docs };
-  }, [malla.datos, especialidad]);
-  const especialidades = useMemo(() => [...new Map((malla.datos?.doctores ?? []).map((d) => [d.especialidad_codigo, d.especialidad])).entries()], [malla.datos]);
+  }, [malla.datos, clave, especialidad]);
+  const especialidades = useMemo(() => [...new Map((malla.datos?.clave === clave ? malla.datos.doctores : []).map((d) => [d.especialidad_codigo, d.especialidad])).entries()], [malla.datos, clave]);
 
   const avisar = (tipo, texto) => { setAviso({ tipo, texto }); if (tipo === 'exito') setTimeout(() => setAviso(null), 3500); };
   const accion = async (fn, exito) => {
@@ -80,7 +81,7 @@ export default function Horarios() {
 
         {aviso && <Alerta tipo={aviso.tipo}>{aviso.texto}</Alerta>}
         {(sedes.error || malla.error) && <Alerta>{sedes.error || malla.error}</Alerta>}
-        {malla.cargando && !datos && <Cargando texto="Cargando la malla…" />}
+        {!datos && sede && !malla.error && <Cargando texto="Cargando la malla…" />}
         {datos && !datos.doctores.length && <Vacio titulo="Sin profesionales en esta sede" texto="Crea doctores en 'Doctores y agendas' con esta sede como principal, o asígnales turnos aquí." />}
         {datos?.doctores.length > 0 && (vista === 'semana'
           ? <MallaSemana datos={datos} fechas={fechas} editable onMover={mover}
