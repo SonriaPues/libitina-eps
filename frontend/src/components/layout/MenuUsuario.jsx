@@ -44,7 +44,10 @@ export default function MenuUsuario({ oscuro = false }) {
             <span className="truncate text-sm text-azul-500">{usuario.correo}</span>
             <span className="mt-1 w-fit rounded-full bg-azul-50 px-2.5 py-0.5 text-xs font-semibold text-azul-700">{ROL[usuario.rol]}</span>
           </div>
-          <Link role="menuitem" to="/" onClick={() => setAbierto(false)} className="flex items-center gap-3 px-4 py-3 text-[15px] hover:bg-azul-50">
+          <Link role="menuitem" to="/mi-cuenta" onClick={() => setAbierto(false)} className="flex items-center gap-3 px-4 py-3 text-[15px] hover:bg-azul-50">
+            <Icono.persona width={18} height={18} />{usuario.rol === 'doctor' ? 'Mi perfil' : 'Mi cuenta'} y contraseña
+          </Link>
+          <Link role="menuitem" to="/" onClick={() => setAbierto(false)} className="flex items-center gap-3 border-t border-azul-50 px-4 py-3 text-[15px] hover:bg-azul-50">
             <Icono.casa width={18} height={18} />Ir al sitio de Libitina
           </Link>
           <button role="menuitem" type="button" onClick={salir} className="flex w-full items-center gap-3 border-t border-azul-50 px-4 py-3 text-left text-[15px] font-semibold text-red-700 hover:bg-red-50">

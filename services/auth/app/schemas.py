@@ -64,3 +64,9 @@ class CambioInterno(BaseModel):
     email_verificado: bool | None = None
     nombres: str | None = Field(default=None, min_length=1, max_length=80)
     apellidos: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+class CambioClaveIn(BaseModel):
+    clave_actual: str = Field(min_length=1, max_length=200)
+    clave_nueva: str
+    _v = field_validator("clave_nueva")(validar_clave)

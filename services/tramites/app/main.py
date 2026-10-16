@@ -126,6 +126,15 @@ def mis_remisiones(u: dict = Depends(solo_afiliado), db: Session = Depends(get_d
     return [remision_out(a, t) for a, t in filas]
 
 
+@app.get("/tramites/remisiones/emitidas", tags=["Remisiones"])
+def remisiones_emitidas(u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    """Las remisiones que firmó el doctor, con su estado (vigente, usada o vencida)."""
+    filas = db.execute(select(Autorizacion, Tramite).join(Tramite, Tramite.id == Autorizacion.tramite_id)
+                       .where(Autorizacion.doctor_id == u["sub"], Autorizacion.tipo == "consulta_especializada")
+                       .order_by(Tramite.creado_en.desc()).limit(300)).all()
+    return [remision_out(a, t) for a, t in filas]
+
+
 @app.get("/internal/remisiones/vigente", dependencies=[Depends(solo_interno)], tags=["Interno"])
 def remision_vigente(afiliado_id: str, especialidad: str, db: Session = Depends(get_db)):
     a = db.scalar(select(Autorizacion).where(Autorizacion.afiliado_id == afiliado_id, Autorizacion.especialidad_codigo == especialidad,

@@ -5,9 +5,11 @@ import { Cargando, Insignia, Vacio } from '../../components/ui/Piezas.jsx';
 import TarjetaConsulta from '../../components/citas/TarjetaConsulta.jsx';
 import { afiliadosApi, historiaApi } from '../../api/servicios.js';
 import { useDatos } from '../../utils/useDatos.js';
-import { edadDe, fechaHora, PARENTESCOS } from '../../utils/formato.js';
+import { edadDe, fechaHora, fechaLarga, PARENTESCOS } from '../../utils/formato.js';
+import { Icono } from '../../components/ui/Iconos.jsx';
 
 const SEVERIDAD = { severa: 'rojo', moderada: 'dorado', leve: 'azul' };
+const ACCIONES = { consulta: 'consultó', creacion: 'registró', modificacion: 'modificó', exportacion: 'descargó un documento' };
 const ANTECEDENTES = { personal: 'Personal', familiar: 'Familiar', quirurgico: 'Quirúrgico', farmacologico: 'Farmacológico', toxicologico: 'Toxicológico', ginecobstetrico: 'Ginecobstétrico' };
 
 export default function HistoriaClinica() {
@@ -16,8 +18,11 @@ export default function HistoriaClinica() {
   const personas = af.datos ? [{ ...af.datos, rol: 'Tú' },
     ...af.datos.beneficiarios.filter((b) => edadDe(b.fecha_nacimiento) < 18).map((b) => ({ ...b, rol: PARENTESCOS[b.parentesco] }))] : [];
   const id = persona ?? personas[0]?.id;
-  const historia = useDatos(() => (id ? Promise.all([historiaApi.mia(id), historiaApi.accesos(id)]) : Promise.resolve(null)), [id]);
-  const [h, accesos] = historia.datos ?? [null, []];
+  const historia = useDatos(() => (id ? Promise.all([historiaApi.mia(id), historiaApi.accesos(id), historiaApi.misDocumentos(id)]) : Promise.resolve(null)), [id]);
+  const [h, accesos, docs] = historia.datos ?? [null, [], null];
+  const [errorPdf, setErrorPdf] = useState('');
+  const documentos = docs ? [...docs.formulas.map((d) => ({ ...d, clase: 'formula' })), ...docs.incapacidades.map((d) => ({ ...d, clase: 'incapacidad' }))]
+    .sort((a, b) => String(b.creado_en).localeCompare(String(a.creado_en))) : [];
 
   return (
     <PanelAfiliado>
@@ -32,6 +37,24 @@ export default function HistoriaClinica() {
         {(af.error || historia.error) && <Alerta>{af.error || historia.error}</Alerta>}
         {historia.cargando && <Cargando />}
         {h && !h.existe && <Vacio titulo="Todavía no hay registros" texto="La historia clínica se abre en la primera atención con un profesional de Libitina." />}
+        {documentos.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-lg font-bold">Fórmulas e incapacidades</h2>
+            {errorPdf && <Alerta>{errorPdf}</Alerta>}
+            <div className="grid gap-3 md:grid-cols-2">{documentos.map((d) => (
+              <article key={d.id} className="tarjeta flex flex-col gap-2 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="flex flex-col"><span className="font-bold">{d.clase === 'formula' ? 'Fórmula médica' : `Incapacidad · ${d.dias} ${d.dias === 1 ? 'día' : 'días'}`}</span>
+                    <span className="text-sm text-azul-600">{d.doctor_nombre} · {d.especialidad}</span></span>
+                  {d.clase === 'formula' ? <Insignia tono={d.vigente_hasta >= new Date().toISOString().slice(0, 10) ? 'verde' : 'azul'}>{d.vigente_hasta >= new Date().toISOString().slice(0, 10) ? 'Vigente' : 'Vencida'}</Insignia>
+                    : <Insignia tono="dorado">{d.tipo_texto}</Insignia>}
+                </div>
+                <span className="text-sm text-azul-800">{d.clase === 'formula' ? d.medicamentos.map((m) => m.medicamento).join(' · ') : `Del ${fechaLarga(d.fecha_inicio)} al ${fechaLarga(d.fecha_fin)}`}</span>
+                <div className="flex items-center justify-between gap-3 pt-1"><span className="font-mono text-xs text-azul-500">{d.codigo}</span>
+                  <button type="button" onClick={() => { setErrorPdf(''); historiaApi.descargarDocumento(d.clase, d).catch((e) => setErrorPdf(e.message)); }} className="btn-borde px-3 py-2 text-sm"><Icono.descarga width={16} height={16} />Descargar PDF</button></div>
+              </article>))}</div>
+          </section>
+        )}
         {h?.existe && (
           <div className="grid items-start gap-5 xl:grid-cols-3">
             <div className="flex flex-col gap-4 xl:col-span-2">
@@ -49,7 +72,7 @@ export default function HistoriaClinica() {
               </section>
               <section className="tarjeta flex flex-col gap-3 p-5"><h2 className="font-bold">Quién ha consultado esta historia</h2>
                 <ul className="flex flex-col gap-2.5">{accesos.slice(0, 10).map((a, i) => (
-                  <li key={i} className="flex flex-col border-b border-azul-50 pb-2 text-sm last:border-0"><span className="font-semibold">{a.rol === 'doctor' ? 'Profesional de la salud' : a.rol === 'afiliado' ? 'Afiliado' : 'Administración'} · {a.accion}</span>
+                  <li key={i} className="flex flex-col border-b border-azul-50 pb-2 text-sm last:border-0"><span className="font-semibold">{a.rol === 'doctor' ? 'Profesional de la salud' : a.rol === 'afiliado' ? 'Afiliado' : 'Administración'} · {ACCIONES[a.accion] ?? a.accion}</span>
                     <span className="text-xs text-azul-600">{a.justificacion}</span><span className="text-xs text-azul-500">{fechaHora(a.fecha)}</span></li>))}</ul>
               </section>
             </aside>

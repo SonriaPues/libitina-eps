@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from . import config
 from .db import SessionLocal, get_db
 from .models import Usuario, RefreshToken, TokenVerificacion
-from .schemas import LoginIn, SesionOut, UsuarioOut, RefreshIn, CorreoIn, NuevaClaveIn, UsuarioInterno, CambioInterno
+from .schemas import LoginIn, SesionOut, UsuarioOut, RefreshIn, CorreoIn, NuevaClaveIn, UsuarioInterno, CambioInterno, CambioClaveIn
 from .seguridad import (ahora, hash_clave, verificar_clave, sha256, token_aleatorio, crear_access_token,
                         usuario_del_token, solo_interno)
 from .eventos import publicar
@@ -101,6 +101,19 @@ def refrescar(datos: RefreshIn, request: Request, db: Session = Depends(get_db))
 @app.post("/auth/logout", status_code=204, tags=["Sesión"])
 def logout(datos: RefreshIn, db: Session = Depends(get_db)):
     db.execute(update(RefreshToken).where(RefreshToken.token_hash == sha256(datos.refresh_token)).values(revocado=True))
+    db.commit()
+
+
+@app.post("/auth/cambiar-clave", status_code=204, tags=["Sesión"])
+def cambiar_clave(datos: CambioClaveIn, token: dict = Depends(usuario_del_token), db: Session = Depends(get_db)):
+    """Cambio de contraseña con sesión iniciada. Cierra las demás sesiones abiertas."""
+    u = db.get(Usuario, token["sub"])
+    if not u or not u.password_hash or not verificar_clave(datos.clave_actual, u.password_hash):
+        raise HTTPException(422, "La contraseña actual no es correcta.")
+    if verificar_clave(datos.clave_nueva, u.password_hash):
+        raise HTTPException(422, "La nueva contraseña debe ser distinta de la actual.")
+    u.password_hash = hash_clave(datos.clave_nueva)
+    db.execute(update(RefreshToken).where(RefreshToken.usuario_id == u.id).values(revocado=True))
     db.commit()
 
 

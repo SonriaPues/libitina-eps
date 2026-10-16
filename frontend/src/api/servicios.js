@@ -1,5 +1,5 @@
 // Funciones que usan las páginas. Cada una llama al API real o al simulado.
-import { api, USE_MOCK, getRefresh, ApiError, descargar } from './client.js';
+import { api, USE_MOCK, getRefresh, ApiError, descargar, BASE } from './client.js';
 import { mock } from './mock.js';
 import { IPS } from '../data/ips.js';
 
@@ -12,6 +12,7 @@ export const authApi = {
   confirmarRecuperacion: m(mock.ok, (token, clave) => api('/auth/recuperar/confirmar', { method: 'POST', body: { token, clave } })),
   verificarCorreo: m(mock.ok, (token) => api(`/auth/verificar-email/${encodeURIComponent(token)}`)),
   reenviarVerificacion: m(mock.ok, () => api('/auth/verificar-email', { method: 'POST', auth: true })),
+  cambiarClave: m(mock.ok, (actual, nueva) => api('/auth/cambiar-clave', { method: 'POST', body: { clave_actual: actual, clave_nueva: nueva }, auth: true })),
 };
 
 export const afiliadosApi = {
@@ -68,6 +69,14 @@ export const citasApi = real({
   crearTurno: (doctorId, d) => api(`/citas/admin/doctores/${doctorId}/turnos`, { method: 'POST', body: d, auth: true }),
   moverTurno: (id, d) => api(`/citas/admin/turnos/${id}`, { method: 'PUT', body: d, auth: true }),
   malla: (puntoId, desde, dias = 7) => api('/citas/admin/malla', { auth: true, params: { punto_atencion_id: puntoId, desde, dias } }),
+  misPacientes: (q) => api('/citas/doctor/pacientes', { auth: true, params: { q: q || undefined } }),
+  misAusencias: () => api('/citas/doctor/ausencias', { auth: true }),
+  solicitarAusencia: (d) => api('/citas/doctor/ausencias', { method: 'POST', body: d, auth: true }),
+  retirarAusencia: (id) => api(`/citas/doctor/ausencias/${id}/cancelar`, { method: 'POST', auth: true }),
+  ausenciasAdmin: (estado) => api('/citas/admin/ausencias', { auth: true, params: { estado } }),
+  cuentaAusencias: () => api('/citas/admin/ausencias/cuenta', { auth: true }),
+  aprobarAusencia: (id, respuesta) => api(`/citas/admin/ausencias/${id}/aprobar`, { method: 'POST', body: { respuesta }, auth: true }),
+  rechazarAusencia: (id, respuesta) => api(`/citas/admin/ausencias/${id}/rechazar`, { method: 'POST', body: { respuesta }, auth: true }),
   mallaDoctor: (desde) => api('/citas/doctor/malla', { auth: true, params: { desde } }),
   borrarTurno: (id) => api(`/citas/admin/turnos/${id}`, { method: 'DELETE', auth: true }),
   crearBloqueo: (doctorId, d) => api(`/citas/admin/doctores/${doctorId}/excepciones`, { method: 'POST', body: d, auth: true }),
@@ -81,12 +90,19 @@ export const historiaApi = real({
   agregarAntecedente: (afiliadoId, citaId, d) => api(`/historia/pacientes/${afiliadoId}/antecedentes?cita_id=${citaId}`, { method: 'POST', body: d, auth: true }),
   mia: (afiliadoId) => api('/historia/mia', { auth: true, params: { afiliado_id: afiliadoId } }),
   accesos: (afiliadoId) => api('/historia/mia/accesos', { auth: true, params: { afiliado_id: afiliadoId } }),
+  expedirFormula: (d) => api('/historia/formulas', { method: 'POST', body: d, auth: true }),
+  expedirIncapacidad: (d) => api('/historia/incapacidades', { method: 'POST', body: d, auth: true }),
+  documentosCita: (citaId) => api(`/historia/citas/${citaId}/documentos`, { auth: true }),
+  misDocumentos: (afiliadoId) => api('/historia/mia/documentos', { auth: true, params: { afiliado_id: afiliadoId } }),
+  descargarDocumento: (tipo, d) => descargar(`${BASE}/historia/documentos/${tipo}/${d.id}/pdf`, `${tipo}-${d.codigo}.pdf`),
+  verificarDocumento: (codigo) => api(`/historia/verificar/${encodeURIComponent(codigo)}`),
 });
 
 export const tramitesApi = real({
   emitirRemision: (d) => api('/tramites/remisiones', { method: 'POST', body: d, auth: true }),
   remisionesDeCita: (citaId) => api(`/tramites/remisiones/cita/${citaId}`, { auth: true }),
   misRemisiones: () => api('/tramites/remisiones/mias', { auth: true }),
+  remisionesEmitidas: () => api('/tramites/remisiones/emitidas', { auth: true }),
   expedirCertificado: () => api('/tramites/certificados', { method: 'POST', auth: true }),
   misCertificados: () => api('/tramites/certificados', { auth: true }),
   descargarCertificado: (c) => descargar(c.url_pdf, `certificado-${c.radicado}.pdf`),

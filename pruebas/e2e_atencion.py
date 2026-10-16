@@ -327,6 +327,60 @@ final = c.get(f"{A}/tramites/pqrsd/consulta", params={"radicado": q["radicado"],
 comprobar("el ciudadano ve la respuesta", final["estado"] == "respondida" and final["respuesta"].startswith("Revisamos"), final.get("estado"))
 
 # ---------------------------------------------------------------- Inactivar doctor
+if puede_atender:
+    print("— Fórmula médica e incapacidad")
+    formula = ver("expedir fórmula", c.post(f"{A}/historia/formulas", headers=HG, json={"cita_id": cita_g["id"], "indicaciones": "Tomar con agua",
+        "medicamentos": [{"medicamento": "Losartán 50 mg", "dosis": "1 tableta", "frecuencia": "cada 12 horas", "duracion": "30 días", "cantidad": 60}]}), 201).json()
+    ver("segunda fórmula en la misma consulta (debe fallar)", c.post(f"{A}/historia/formulas", headers=HG, json={"cita_id": cita_g["id"],
+        "medicamentos": [{"medicamento": "Acetaminofén 500 mg", "dosis": "1 tableta", "frecuencia": "cada 8 horas", "duracion": "3 días", "cantidad": 9}]}), 409)
+    ver("otro doctor no expide fórmulas en esta cita", c.post(f"{A}/historia/formulas", headers=HN, json={"cita_id": cita_g["id"],
+        "medicamentos": [{"medicamento": "Acetaminofén 500 mg", "dosis": "1", "frecuencia": "cada 8 horas", "duracion": "3 días", "cantidad": 9}]}), 403)
+    ver("incapacidad de 40 días (debe fallar)", c.post(f"{A}/historia/incapacidades", headers=HG, json={"cita_id": cita_g["id"], "dias": 40}), 422)
+    incap = ver("expedir incapacidad (cotizante contributivo)", c.post(f"{A}/historia/incapacidades", headers=HG,
+        json={"cita_id": cita_g["id"], "dias": 3, "tipo": "enfermedad_general"}), 201).json()
+    comprobar("la incapacidad cubre 3 días", incap.get("dias") == 3 and incap.get("fecha_fin") > incap.get("fecha_inicio", "9"), incap)
+    docs = ver("documentos de la cita", c.get(f"{A}/historia/citas/{cita_g['id']}/documentos", headers=HG), 200).json()
+    comprobar("la cita tiene fórmula e incapacidad", bool(docs["formula"] and docs["incapacidad"]))
+    mios = ver("mis documentos (paciente)", c.get(f"{A}/historia/mia/documentos", headers=H, params={"afiliado_id": titular}), 200).json()
+    comprobar("el paciente ve sus documentos", len(mios["formulas"]) == 1 and len(mios["incapacidades"]) == 1)
+    pdf_f = ver("PDF de la fórmula (paciente)", c.get(f"{A}/historia/documentos/formula/{formula['id']}/pdf", headers=H), 200)
+    comprobar("la fórmula es un PDF", pdf_f.content[:4] == b"%PDF")
+    ver("PDF de la incapacidad (doctor que la expidió)", c.get(f"{A}/historia/documentos/incapacidad/{incap['id']}/pdf", headers=HG), 200)
+    ver("otro doctor no descarga el PDF", c.get(f"{A}/historia/documentos/formula/{formula['id']}/pdf", headers=HN), 403)
+    v = ver("verificar la fórmula", c.get(f"{A}/historia/verificar/{formula['codigo']}"), 200).json()
+    comprobar("auténtica y sin contenido clínico", v["valido"] and "medicamentos" not in v and "diagnostico" not in v and "***" in v["paciente"], v)
+    comprobar("código inexistente no es válido", not c.get(f"{A}/historia/verificar/ZZZZ-ZZZZ").json()["valido"])
+
+print("— Portal del doctor: pacientes, remisiones y ausencias")
+pacs = ver("mis pacientes", c.get(f"{A}/citas/doctor/pacientes", headers=HG), 200).json()
+comprobar("el paciente aparece en su lista", any(x["afiliado_id"] == titular for x in pacs))
+comprobar("la búsqueda filtra", not c.get(f"{A}/citas/doctor/pacientes", headers=HG, params={"q": "zzz-no-existe"}).json())
+emitidas = ver("remisiones emitidas", c.get(f"{A}/tramites/remisiones/emitidas", headers=HG), 200).json()
+comprobar("la remisión aparece en las emitidas", len(emitidas) >= (1 if puede_atender else 0))
+ini, fin = (HOY + timedelta(days=40)).isoformat(), (HOY + timedelta(days=42)).isoformat()
+aus = ver("solicitar vacaciones", c.post(f"{A}/citas/doctor/ausencias", headers=HG, json={"tipo": "vacaciones", "fecha_inicio": ini,
+    "fecha_fin": fin, "motivo": "Vacaciones programadas"}), 201).json()
+ver("solicitud que se cruza (debe fallar)", c.post(f"{A}/citas/doctor/ausencias", headers=HG, json={"tipo": "capacitacion",
+    "fecha_inicio": fin, "fecha_fin": fin, "motivo": "Congreso médico"}), 409)
+ver("ausencia en el pasado (debe fallar)", c.post(f"{A}/citas/doctor/ausencias", headers=HG, json={"tipo": "otro",
+    "fecha_inicio": (HOY - timedelta(days=3)).isoformat(), "fecha_fin": HOY.isoformat(), "motivo": "Algo pasado"}), 422)
+ver("un afiliado no ve la bandeja de ausencias", c.get(f"{A}/citas/admin/ausencias", headers=H), 403)
+cuenta = ver("pendientes en la bandeja", c.get(f"{A}/citas/admin/ausencias/cuenta", headers=HA), 200).json()
+comprobar("hay al menos una pendiente", cuenta["pendientes"] >= 1, cuenta)
+ver("rechazar sin explicar (debe fallar)", c.post(f"{A}/citas/admin/ausencias/{aus['id']}/rechazar", headers=HA, json={}), 422)
+aprob = ver("aprobar las vacaciones", c.post(f"{A}/citas/admin/ausencias/{aus['id']}/aprobar", headers=HA, json={"respuesta": "Buen descanso"}), 200).json()
+comprobar("quedó aprobada", aprob["estado"] == "aprobada")
+malla_g = c.get(f"{A}/citas/doctor/malla", headers=HG, params={"desde": ini}).json()
+comprobar("la agenda quedó bloqueada esos días", any(e["fecha_inicio"] == ini for e in malla_g["excepciones"]))
+ver("retirar una solicitud ya aprobada (debe fallar)", c.post(f"{A}/citas/doctor/ausencias/{aus['id']}/cancelar", headers=HG), 409)
+
+print("— Cambiar contraseña")
+ver("contraseña actual equivocada (debe fallar)", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Otra1234", "clave_nueva": "Nueva2026"}), 422)
+ver("contraseña nueva débil (debe fallar)", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Marta1234", "clave_nueva": "corta"}), 422)
+ver("cambiar contraseña", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Marta1234", "clave_nueva": "Nueva2026"}), 204)
+ver("entra con la nueva", c.post(f"{A}/auth/login", json={"correo": CORREO, "clave": "Nueva2026"}), 200)
+ver("la anterior ya no sirve", c.post(f"{A}/auth/login", json={"correo": CORREO, "clave": "Marta1234"}), 401)
+
 print("— Inactivar un doctor")
 ver("inactivar", c.put(f"{A}/prestadores/admin/doctores/{doc_n['id']}", headers=HA, json={"estado": "inactivo"}), 200)
 ver("el doctor inactivo ya no entra", c.post(f"{A}/auth/login", json={"correo": datos_n["correo"], "clave": "Doctor123"}), 403)

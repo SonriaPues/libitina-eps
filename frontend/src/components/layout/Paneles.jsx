@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { citasApi } from '../../api/servicios.js';
 import PanelLayout from './PanelLayout.jsx';
 import { Icono } from '../ui/Iconos.jsx';
 
@@ -14,20 +16,42 @@ const MENUS = {
     ['Red de IPS', '/red-de-ips', Icono.ubicacion],
   ],
   doctor: [
-    ['Mi agenda', '/doctor', Icono.calendario],
+    ['Inicio', '/doctor', Icono.casa],
+    ['Mi agenda', '/doctor/agenda', Icono.calendario],
+    ['Mis pacientes', '/doctor/pacientes', Icono.familia],
+    ['Remisiones', '/doctor/remisiones', Icono.documento],
+    ['Ausencias', '/doctor/ausencias', Icono.reloj],
+    ['Mi perfil', '/mi-cuenta', Icono.persona],
   ],
   admin: [
     ['Afiliaciones', '/admin', Icono.familia],
     ['Doctores y agendas', '/admin/doctores', Icono.doctor],
     ['Horarios', '/admin/horarios', Icono.malla],
+    ['Ausencias', '/admin/ausencias', Icono.reloj],
     ['Especialidades', '/admin/especialidades', Icono.estrella],
     ['PQRSD', '/admin/pqrsd', Icono.bandeja],
     ['Red de IPS', '/red-de-ips', Icono.ubicacion],
   ],
 };
 
+// Solicitudes de ausencia por responder: el contador del menú del administrador.
+function useAusenciasPendientes(activo) {
+  const [n, setN] = useState(null);
+  useEffect(() => {
+    if (!activo) return undefined;
+    const cargar = () => citasApi.cuentaAusencias().then((r) => setN(r.pendientes || null)).catch(() => {});
+    cargar();
+    window.addEventListener('libitina:contadores', cargar);
+    return () => window.removeEventListener('libitina:contadores', cargar);
+  }, [activo]);
+  return n;
+}
+
 function Panel({ rol, contadores = {}, children }) {
-  const { pathname } = useLocation();
+  const { pathname: ruta } = useLocation();
+  const pathname = ruta.startsWith('/doctor/citas/') ? '/doctor/agenda' : ruta;     // la atención de una cita cuelga de la agenda
+  const ausencias = useAusenciasPendientes(rol === 'admin');
+  if (rol === 'admin' && ausencias) contadores = { ...contadores, '/admin/ausencias': ausencias };
   const opciones = MENUS[rol];
   // La opción activa es la de ruta más larga que coincide (así /admin/doctores/x marca "Doctores")
   const activa = opciones.map((o) => o[1]).filter((r) => pathname === r || pathname.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];

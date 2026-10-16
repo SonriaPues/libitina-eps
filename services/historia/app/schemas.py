@@ -45,3 +45,27 @@ class AlergiaIn(BaseModel):
     tipo: Literal["medicamento", "alimento", "ambiental", "otro"]
     severidad: Literal["leve", "moderada", "severa"]
     reaccion: Optional[str] = Field(default=None, max_length=500)
+
+
+class Medicamento(BaseModel):
+    medicamento: str = Field(min_length=2, max_length=150)        # nombre genérico y concentración
+    presentacion: str = Field(default="Tableta", max_length=60)
+    dosis: str = Field(min_length=1, max_length=60)                # ej.: 1 tableta
+    frecuencia: str = Field(min_length=2, max_length=60)           # ej.: cada 12 horas
+    duracion: str = Field(min_length=2, max_length=60)             # ej.: 30 días
+    via: str = Field(default="Oral", max_length=30)
+    cantidad: int = Field(ge=1, le=999)
+
+
+class FormulaIn(BaseModel):
+    cita_id: uuid.UUID
+    medicamentos: list[Medicamento] = Field(min_length=1, max_length=10)
+    indicaciones: Optional[str] = Field(default=None, max_length=1000)
+
+
+class IncapacidadIn(BaseModel):
+    cita_id: uuid.UUID
+    tipo: Literal["enfermedad_general", "accidente_comun", "accidente_laboral", "enfermedad_laboral"] = "enfermedad_general"
+    fecha_inicio: Optional[date] = None        # por defecto, el día de la consulta
+    dias: int = Field(ge=1, le=30)
+    observaciones: Optional[str] = Field(default=None, max_length=500)

@@ -20,8 +20,8 @@ from . import agenda, clientes, config
 from .db import engine, get_db
 from .eventos import notificar
 from .migrar import aplicar
-from .models import Doctor, Turno, Excepcion, Cita, ACTIVAS
-from .schemas import AgendarIn, ReagendarIn, CancelarIn, TurnoIn, TurnoCambio, ExcepcionIn
+from .models import Doctor, Turno, Excepcion, Cita, Ausencia, ACTIVAS
+from .schemas import AgendarIn, ReagendarIn, CancelarIn, TurnoIn, TurnoCambio, ExcepcionIn, AusenciaIn, RespuestaAusenciaIn
 from .seguridad import requiere_rol, solo_interno
 from .tiempo import ahora, hoy, fecha_larga, hora_corta
 
@@ -232,6 +232,29 @@ def reagendar(cita_id: str, datos: ReagendarIn, u: dict = Depends(solo_afiliado)
 
 
 # ---------------- Doctor ----------------
+@app.get("/citas/doctor/pacientes", tags=["Doctor"])
+def mis_pacientes(q: str = Query(default="", max_length=60), u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    """Pacientes que el doctor ha atendido o tiene agendados, con su última y su próxima cita."""
+    citas = list(db.scalars(select(Cita).where(Cita.doctor_id == u["sub"], Cita.estado.notin_(["reagendada", "cancelada"]))
+                            .order_by(Cita.fecha.desc(), Cita.hora_inicio.desc()).limit(2000)))
+    filtro = q.strip().lower()
+    pacientes = {}
+    for c in citas:
+        p = pacientes.setdefault(c.afiliado_id, {"afiliado_id": c.afiliado_id, "nombre": c.paciente_nombre, "documento": c.paciente_documento,
+                                                 "atenciones": 0, "inasistencias": 0, "ultima": None, "proxima": None, "abrir_cita_id": None})
+        if c.estado == "realizada":
+            p["atenciones"] += 1
+            p["ultima"] = p["ultima"] or {"fecha": c.fecha, "especialidad": c.especialidad, "cita_id": c.id}
+        if c.estado == "no_asistio":
+            p["inasistencias"] += 1
+        if c.estado in ACTIVAS and c.fecha >= hoy():
+            p["proxima"] = {"fecha": c.fecha, "hora": c.hora_inicio.strftime("%H:%M"), "cita_id": c.id}
+        if c.estado in ("confirmada", "realizada") and not p["abrir_cita_id"]:
+            p["abrir_cita_id"] = c.id                 # la historia se abre siempre desde una cita (queda en la auditoría)
+    lista = [p for p in pacientes.values() if not filtro or filtro in p["nombre"].lower() or filtro in p["documento"].lower()]
+    return sorted(lista, key=lambda p: (p["ultima"] is None, -(p["ultima"]["fecha"].toordinal() if p["ultima"] else 0), p["nombre"]))
+
+
 @app.get("/citas/doctor/malla", tags=["Doctor"])
 def malla_doctor(desde: date | None = None, dias: int = Query(default=7, ge=1, le=7), u: dict = Depends(solo_doctor),
                  db: Session = Depends(get_db)):
@@ -390,19 +413,136 @@ def malla_admin(punto_atencion_id: str, desde: date | None = None, dias: int = Q
 def crear_excepcion(doctor_id: str, datos: ExcepcionIn, admin: dict = Depends(solo_admin), db: Session = Depends(get_db)):
     """Bloquea días (vacaciones, incapacidad). Las citas ya agendadas esos días se cancelan y se avisa a los pacientes."""
     d = obtener(db, Doctor, doctor_id, "Doctor no encontrado.")
-    e = Excepcion(doctor_id=d.doctor_id, **datos.model_dump())
+    e, n = bloquear(db, d, datos.fecha_inicio, datos.fecha_fin, datos.motivo, admin["sub"])
+    return {"id": e.id, "citas_canceladas": n}
+
+
+def citas_en(db: Session, doctor_id, desde: date, hasta: date) -> list[Cita]:
+    return list(db.scalars(select(Cita).where(Cita.doctor_id == doctor_id, Cita.estado.in_(ACTIVAS), Cita.fecha.between(desde, hasta))
+                           .order_by(Cita.fecha, Cita.hora_inicio)))
+
+
+def bloquear(db: Session, d: Doctor, desde: date, hasta: date, motivo_bloqueo: str, admin_id: str, antes_de_guardar=None):
+    """Crea el bloqueo, cancela las citas de esos días (liberando remisiones) y avisa a cada paciente."""
+    e = Excepcion(doctor_id=d.doctor_id, fecha_inicio=desde, fecha_fin=hasta, motivo=motivo_bloqueo[:150])
     db.add(e)
-    afectadas = list(db.scalars(select(Cita).where(Cita.doctor_id == d.doctor_id, Cita.estado.in_(ACTIVAS),
-                                                   Cita.fecha.between(datos.fecha_inicio, datos.fecha_fin))))
+    db.flush()
+    afectadas = citas_en(db, d.doctor_id, desde, hasta)
     motivo = "El profesional no estará disponible ese día. Puedes agendar de nuevo desde tu portal."
     for c in afectadas:
-        c.estado, c.motivo_cancelacion, c.cancelada_por = "cancelada", motivo, admin["sub"]
+        c.estado, c.motivo_cancelacion, c.cancelada_por = "cancelada", motivo, admin_id
+    if antes_de_guardar:
+        antes_de_guardar(e)
     db.commit()
     for c in afectadas:
         if c.remision_id:
             clientes.liberar_remision(c.remision_id)
         avisar("cita_cancelada", c, d, motivo=motivo)
-    return {"id": e.id, "citas_canceladas": len(afectadas)}
+    return e, len(afectadas)
+
+
+# ---------------- Ausencias (el doctor solicita, el administrador decide) ----------------
+TIPOS_AUSENCIA = {"vacaciones": "Vacaciones", "incapacidad": "Incapacidad", "capacitacion": "Capacitación",
+                  "calamidad": "Calamidad doméstica", "otro": "Otro motivo"}
+
+
+def ausencia_out(db: Session, a: Ausencia, d: Doctor | None = None) -> dict:
+    return {"id": a.id, "doctor_id": a.doctor_id, "doctor": d.nombre_completo if d else None, "especialidad": d.especialidad if d else None,
+            "tipo": a.tipo, "tipo_texto": TIPOS_AUSENCIA[a.tipo], "fecha_inicio": a.fecha_inicio, "fecha_fin": a.fecha_fin,
+            "dias": (a.fecha_fin - a.fecha_inicio).days + 1, "motivo": a.motivo, "estado": a.estado, "respuesta": a.respuesta,
+            "revisada_en": a.revisada_en, "creado_en": a.creado_en,
+            "citas_afectadas": len(citas_en(db, a.doctor_id, a.fecha_inicio, a.fecha_fin)) if a.estado == "pendiente" else None}
+
+
+def avisar_ausencia(a: Ausencia, d: Doctor) -> None:
+    if not a.contacto_email:
+        return
+    notificar("ausencia_respondida", "citas", a.contacto_email, d.nombre_completo.split()[0], usuario_id=d.doctor_id,
+              ruta="/doctor/ausencias", referencia_id=a.id, tipo=TIPOS_AUSENCIA[a.tipo].lower(),
+              desde=fecha_larga(a.fecha_inicio), hasta=fecha_larga(a.fecha_fin),
+              decision="aprobada" if a.estado == "aprobada" else "rechazada",
+              respuesta=a.respuesta or ("Tu agenda quedó bloqueada esos días." if a.estado == "aprobada" else "Sin observaciones."))
+
+
+@app.post("/citas/doctor/ausencias", status_code=201, tags=["Doctor"])
+def solicitar_ausencia(datos: AusenciaIn, u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    d = obtener(db, Doctor, u["sub"], "Tu agenda todavía no está lista. Intenta en unos minutos.")
+    if datos.fecha_inicio < hoy():
+        raise HTTPException(422, "La ausencia debe empezar hoy o después.")
+    cruce = db.scalar(select(Ausencia.id).where(Ausencia.doctor_id == d.doctor_id, Ausencia.estado.in_(["pendiente", "aprobada"]),
+                                                Ausencia.fecha_inicio <= datos.fecha_fin, Ausencia.fecha_fin >= datos.fecha_inicio))
+    if cruce:
+        raise HTTPException(409, "Ya tienes una solicitud pendiente o aprobada que se cruza con esas fechas.")
+    a = Ausencia(doctor_id=d.doctor_id, contacto_email=u.get("correo"), **datos.model_dump())
+    db.add(a)
+    db.commit()
+    return ausencia_out(db, a, d)
+
+
+@app.get("/citas/doctor/ausencias", tags=["Doctor"])
+def mis_ausencias(u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    d = db.get(Doctor, u["sub"])
+    return [ausencia_out(db, a, d) for a in db.scalars(select(Ausencia).where(Ausencia.doctor_id == u["sub"])
+                                                       .order_by(Ausencia.fecha_inicio.desc()).limit(100))]
+
+
+@app.post("/citas/doctor/ausencias/{ausencia_id}/cancelar", tags=["Doctor"])
+def cancelar_ausencia(ausencia_id: str, u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    a = obtener(db, Ausencia, ausencia_id, "Solicitud no encontrada.")
+    if str(a.doctor_id) != u["sub"]:
+        raise HTTPException(404, "Solicitud no encontrada.")
+    if a.estado != "pendiente":
+        raise HTTPException(409, "Solo puedes retirar una solicitud que todavía esté pendiente.")
+    a.estado = "cancelada"
+    db.commit()
+    return ausencia_out(db, a, db.get(Doctor, a.doctor_id))
+
+
+@app.get("/citas/admin/ausencias", dependencies=[Depends(solo_admin)], tags=["Administración"])
+def ausencias_admin(estado: str = Query(default="pendiente", pattern="^(pendiente|resueltas|todas)$"), db: Session = Depends(get_db)):
+    q = select(Ausencia, Doctor).join(Doctor, Doctor.doctor_id == Ausencia.doctor_id)
+    if estado == "pendiente":
+        q = q.where(Ausencia.estado == "pendiente").order_by(Ausencia.fecha_inicio)
+    else:
+        if estado == "resueltas":
+            q = q.where(Ausencia.estado.in_(["aprobada", "rechazada"]))
+        q = q.order_by(Ausencia.creado_en.desc())
+    return [ausencia_out(db, a, d) for a, d in db.execute(q.limit(200)).all()]
+
+
+@app.get("/citas/admin/ausencias/cuenta", dependencies=[Depends(solo_admin)], tags=["Administración"])
+def ausencias_pendientes(db: Session = Depends(get_db)):
+    return {"pendientes": db.scalar(select(func.count()).select_from(Ausencia).where(Ausencia.estado == "pendiente")) or 0}
+
+
+def ausencia_pendiente(db: Session, ausencia_id: str) -> tuple[Ausencia, Doctor]:
+    a = obtener(db, Ausencia, ausencia_id, "Solicitud no encontrada.")
+    if a.estado != "pendiente":
+        raise HTTPException(409, "Esta solicitud ya fue respondida.")
+    return a, db.get(Doctor, a.doctor_id)
+
+
+@app.post("/citas/admin/ausencias/{ausencia_id}/aprobar", tags=["Administración"])
+def aprobar_ausencia(ausencia_id: str, datos: RespuestaAusenciaIn, admin: dict = Depends(solo_admin), db: Session = Depends(get_db)):
+    """Aprueba: bloquea esos días en la agenda, cancela las citas que había y avisa a los pacientes y al doctor."""
+    a, d = ausencia_pendiente(db, ausencia_id)
+    def marcar(e):
+        a.estado, a.excepcion_id, a.revisada_por, a.revisada_en = "aprobada", e.id, admin["sub"], func.now()
+        a.respuesta = (datos.respuesta or "").strip() or None
+    _, n = bloquear(db, d, a.fecha_inicio, a.fecha_fin, f"{TIPOS_AUSENCIA[a.tipo]}: {a.motivo}", admin["sub"], marcar)
+    avisar_ausencia(a, d)
+    return {**ausencia_out(db, a, d), "citas_canceladas": n}
+
+
+@app.post("/citas/admin/ausencias/{ausencia_id}/rechazar", tags=["Administración"])
+def rechazar_ausencia(ausencia_id: str, datos: RespuestaAusenciaIn, admin: dict = Depends(solo_admin), db: Session = Depends(get_db)):
+    a, d = ausencia_pendiente(db, ausencia_id)
+    if not datos.respuesta or len(datos.respuesta.strip()) < 5:
+        raise HTTPException(422, "Explícale al doctor por qué se rechaza (mínimo 5 caracteres).")
+    a.estado, a.respuesta, a.revisada_por, a.revisada_en = "rechazada", datos.respuesta.strip(), admin["sub"], func.now()
+    db.commit()
+    avisar_ausencia(a, d)
+    return ausencia_out(db, a, d)
 
 
 @app.delete("/citas/admin/excepciones/{excepcion_id}", status_code=204, dependencies=[Depends(solo_admin)], tags=["Administración"])

@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, time
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -68,3 +68,22 @@ class DoctorCopia(BaseModel):
     duracion_cita_min: int
     sede_principal_id: Optional[uuid.UUID] = None
     activo: bool
+
+
+class AusenciaIn(BaseModel):
+    tipo: Literal["vacaciones", "incapacidad", "capacitacion", "calamidad", "otro"]
+    fecha_inicio: date
+    fecha_fin: date
+    motivo: str = Field(min_length=5, max_length=500)
+
+    @model_validator(mode="after")
+    def orden(self):
+        if self.fecha_fin < self.fecha_inicio:
+            raise ValueError("La fecha final no puede ser anterior a la inicial.")
+        if (self.fecha_fin - self.fecha_inicio).days > 59:
+            raise ValueError("Solicita como máximo 60 días seguidos.")
+        return self
+
+
+class RespuestaAusenciaIn(BaseModel):
+    respuesta: Optional[str] = Field(default=None, max_length=500)

@@ -35,7 +35,8 @@ LIMITE_SENSIBLE = int(os.getenv("LIMITE_SENSIBLE_POR_MINUTO", "10"))
 # Se comparan por prefijo, así cubren también rutas con parámetros (ej. el código de un certificado).
 SENSIBLES = {("POST", "auth/login"), ("POST", "auth/recuperar"), ("POST", "auth/recuperar/confirmar"),
              ("POST", "afiliados/inscripcion"), ("GET", "afiliados/consulta"), ("POST", "tramites/pqrsd"),
-             ("GET", "tramites/pqrsd/consulta"), ("GET", "tramites/certificados/verificar")}
+             ("GET", "tramites/pqrsd/consulta"), ("GET", "tramites/certificados/verificar"),
+             ("POST", "auth/cambiar-clave"), ("GET", "historia/verificar")}
 TAMANO_MAXIMO = 1_000_000  # 1 MB por petición
 # Carpeta con el build del front. En desarrollo no existe y el front corre con `npm run dev`.
 ESTATICOS = Path(os.getenv("FRONT_DIR", "/srv/front"))

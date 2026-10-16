@@ -36,7 +36,9 @@ El carné y las novedades siguen con datos simulados; lo demás ya es real.
 - [x] Citas para los beneficiarios desde la cuenta del titular.
 - [x] Recordatorio por correo el día anterior (tarea programada de Celery).
 - [ ] Solicitud de atención domiciliaria (pensada para la zona rural).
-- [x] Portal del doctor: su agenda del día y de la semana, la historia del paciente y el registro de la consulta.
+- [x] Portal del doctor: inicio con resumen del día, agenda en calendario, mis pacientes, remisiones emitidas, solicitudes de ausencia
+      (aprobadas por el administrador) y perfil con cambio de contraseña.
+- [x] Fórmula médica e incapacidad en PDF con QR de verificación; buscador de diagnósticos CIE-10.
 
 ## Entrega 4 · Historia Clínica (servicio `historia`)
 
@@ -51,9 +53,11 @@ El carné y las novedades siguen con datos simulados; lo demás ya es real.
 
 - [x] Remisión a especialista emitida por el doctor (vigencia de 90 días).
 - [ ] Autorizaciones de servicios (exámenes, procedimientos) solicitadas por el doctor y aprobadas por la EPS.
-- [ ] Órdenes de medicamentos y seguimiento de la entrega en farmacia.
+- [x] Fórmula médica descargable por el paciente.
+- [ ] Seguimiento de la entrega de medicamentos en farmacia.
 - [ ] Reserva de salas y quirófanos.
-- [ ] Incapacidades y licencias de maternidad y paternidad (régimen contributivo).
+- [x] Incapacidades médicas (cotizantes del régimen contributivo).
+- [ ] Licencias de maternidad y paternidad.
 
 ## Administración y reportes
 

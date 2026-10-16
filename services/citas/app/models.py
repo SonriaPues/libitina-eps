@@ -75,3 +75,21 @@ class Cita(Base):
     contacto_nombre: Mapped[str | None] = mapped_column(String(80))
     recordatorio_enviado: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class Ausencia(Base):
+    """Solicitud de ausencia del doctor; al aprobarla se crea un bloqueo de agenda."""
+    __tablename__ = "solicitudes_ausencia"
+    id: Mapped[uuid.UUID] = Id()
+    doctor_id: Mapped[uuid.UUID] = Ref(ForeignKey("doctores.doctor_id"))
+    tipo: Mapped[str] = mapped_column(String(20))
+    fecha_inicio: Mapped[date] = mapped_column(Date)
+    fecha_fin: Mapped[date] = mapped_column(Date)
+    motivo: Mapped[str] = mapped_column(String(500))
+    estado: Mapped[str] = mapped_column(String(12), server_default=text("'pendiente'"))
+    respuesta: Mapped[str | None] = mapped_column(String(500))
+    revisada_por: Mapped[uuid.UUID | None] = Ref()
+    revisada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    excepcion_id: Mapped[uuid.UUID | None] = Ref(ForeignKey("excepciones_agenda.id"))
+    contacto_email: Mapped[str | None] = mapped_column(String(255))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

@@ -179,6 +179,7 @@ services:
       CLAVE_CIFRADO_HISTORIA: ${CLAVE_CIFRADO_HISTORIA:?Falta CLAVE_CIFRADO_HISTORIA en .env}
       CITAS_URL: http://citas:8000
       AFILIADOS_URL: http://afiliados:8000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}     # dirección del QR de verificación de fórmulas e incapacidades
     depends_on: { db-clinica: { condition: service_healthy } }
 
   # ---------------- Punto de entrada único (API + front compilado) ----------------

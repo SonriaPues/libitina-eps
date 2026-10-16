@@ -4,6 +4,8 @@ import { PanelDoctor } from '../../components/layout/Paneles.jsx';
 import { Alerta, Campo } from '../../components/ui/Controles.jsx';
 import { Cargando, Dato, EstadoCita, Insignia } from '../../components/ui/Piezas.jsx';
 import TarjetaConsulta from '../../components/citas/TarjetaConsulta.jsx';
+import BuscadorCie10 from '../../components/historia/BuscadorCie10.jsx';
+import DocumentosCita from '../../components/historia/DocumentosCita.jsx';
 import { citasApi, historiaApi, redApi, tramitesApi } from '../../api/servicios.js';
 import { useDatos } from '../../utils/useDatos.js';
 import { edadDe, fechaLarga, hora12 } from '../../utils/formato.js';
@@ -58,7 +60,7 @@ export default function Atencion() {
   return (
     <PanelDoctor>
       <div className="flex flex-col gap-6">
-        <Link to="/doctor" className="text-sm font-semibold text-azul-600">‹ Volver a la agenda</Link>
+        <Link to="/doctor/agenda" className="text-sm font-semibold text-azul-600">‹ Volver a la agenda</Link>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex flex-col gap-1"><span className="antetitulo">{c.especialidad} · {fechaLarga(c.fecha)}, {hora12(c.hora)}</span><h1 className="text-3xl font-extrabold">{c.paciente}</h1></div>
           <span className="flex items-center gap-3"><EstadoCita estado={c.estado} />
@@ -106,10 +108,7 @@ export default function Atencion() {
                     <Campo key={k} etiqueta={t}>{(i) => <input id={i} type={tipo} step="any" className="campo" placeholder={ph} value={signos[k] ?? ''} onChange={(e) => setSignos({ ...signos, [k]: e.target.value })} />}</Campo>))}</div>
                 </fieldset>
                 <Campo etiqueta="Examen físico (opcional)">{(i) => <textarea id={i} className="campo h-auto min-h-[70px] py-3" value={f.examen_fisico} onChange={set('examen_fisico')} />}</Campo>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Campo etiqueta="Diagnóstico CIE-10" ayuda="Ej.: I10, J06.9">{(i) => <input id={i} className="campo font-mono uppercase" maxLength={8} value={f.diagnostico_cie10} onChange={set('diagnostico_cie10')} />}</Campo>
-                  <Campo etiqueta="Descripción del diagnóstico" className="sm:col-span-2">{(i) => <input id={i} className="campo" value={f.diagnostico_desc} onChange={set('diagnostico_desc')} />}</Campo>
-                </div>
+                <BuscadorCie10 codigo={f.diagnostico_cie10} descripcion={f.diagnostico_desc} onCambio={(codigo, desc) => setF((x) => ({ ...x, diagnostico_cie10: codigo, diagnostico_desc: desc }))} />
                 <Campo etiqueta="Tratamiento y plan">{(i) => <textarea id={i} className="campo h-auto min-h-[90px] py-3" value={f.tratamiento} onChange={set('tratamiento')} />}</Campo>
                 <Campo etiqueta="Observaciones (opcional)">{(i) => <textarea id={i} className="campo h-auto min-h-[60px] py-3" value={f.observaciones} onChange={set('observaciones')} />}</Campo>
                 <button type="submit" disabled={enviando} className="btn-primario self-end px-8">{enviando ? 'Guardando…' : 'Guardar consulta'}</button>
@@ -117,6 +116,7 @@ export default function Atencion() {
             )}
             {c.estado === 'confirmada' && !c.puede_atender && <Alerta tipo="aviso">La consulta se registra el día de la cita.</Alerta>}
             {ultima && <div className="flex flex-col gap-2"><h2 className="font-bold">Consulta de esta cita</h2><TarjetaConsulta c={ultima} /></div>}
+            {ultima && <DocumentosCita citaId={id} fechaCita={String(c.fecha).slice(0, 10)} />}
 
             {(c.estado === 'realizada' || c.puede_atender) && (
               <section className="tarjeta flex flex-col gap-4 p-6">
@@ -139,7 +139,7 @@ export default function Atencion() {
               <div className="grid gap-5 lg:grid-cols-2">
                 <section className="tarjeta flex flex-col gap-3 p-5"><h2 className="font-bold">Registrar alergia</h2>
                   <Campo etiqueta="Agente">{(i) => <input id={i} className="campo" placeholder="Ej.: Penicilina" value={alergia.agente} onChange={(e) => setAlergia({ ...alergia, agente: e.target.value })} />}</Campo>
-                  <div className="grid gap-3 xl:grid-cols-2">
+                  <div className="grid gap-3">
                     <Campo etiqueta="Tipo">{(i) => <select id={i} className="campo" value={alergia.tipo} onChange={(e) => setAlergia({ ...alergia, tipo: e.target.value })}>{['medicamento', 'alimento', 'ambiental', 'otro'].map((t) => <option key={t}>{t}</option>)}</select>}</Campo>
                     <Campo etiqueta="Severidad">{(i) => <select id={i} className="campo" value={alergia.severidad} onChange={(e) => setAlergia({ ...alergia, severidad: e.target.value })}>{['leve', 'moderada', 'severa'].map((t) => <option key={t}>{t}</option>)}</select>}</Campo>
                   </div>

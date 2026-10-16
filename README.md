@@ -18,7 +18,7 @@ libitina-eps/
 │   ├── citas/                Turnos, agendamiento, recordatorios (API + worker de Celery)
 │   └── historia/             Historia clínica cifrada y con registro de cada acceso
 ├── frontend/                 Sitio público, portal del afiliado, portal del doctor y administración
-├── bases/                    Las 41 tablas: esquemas SQL y scripts que crean bases y usuarios
+├── bases/                    Las 44 tablas: esquemas SQL y scripts que crean bases y usuarios
 ├── infra/
 │   ├── nginx/                Proxy inverso con HTTPS (producción)
 │   ├── respaldos/            Respaldo diario de las 7 bases y restauración
@@ -62,8 +62,8 @@ libitina-eps/
 | Red de Prestadores | libitina_prestadores | 5 | Completo |
 | Notificaciones (API + worker) | libitina_notificaciones | 5 | Completo |
 | Trámites | libitina_tramites | 7 | Certificados, PQRSD y remisiones |
-| Citas Médicas (API + worker) | libitina_citas | 6 | Turnos, agendamiento y recordatorios |
-| Historia Clínica | libitina_historia (servidor clínico) | 8 | Consultas, alergias y antecedentes |
+| Citas Médicas (API + worker) | libitina_citas | 7 | Turnos, agendamiento, recordatorios y ausencias de doctores |
+| Historia Clínica | libitina_historia (servidor clínico) | 10 | Consultas, alergias, antecedentes, fórmulas e incapacidades (PDF con QR) |
 
 **Migraciones:** cada servicio aplica al arrancar los archivos de `app/migraciones/` que falten (los registra en
 `schema_migraciones`), así que una base que ya tiene datos en Azure se actualiza sin perderlos.
@@ -185,6 +185,13 @@ En Azure for Students, sobre una máquina virtual con Docker Compose. Paso a pas
 | GET · POST · DELETE | /citas/admin/doctores/{id}/agenda · /turnos · /excepciones | Admin |
 | GET · PUT | /citas/admin/malla?punto_atencion_id= · /citas/admin/turnos/{id} | Admin (malla por sede; mover o estirar turnos) |
 | GET | /citas/doctor/malla | Doctor (su semana en calendario) |
+| GET · POST | /citas/doctor/pacientes · /citas/doctor/ausencias · /ausencias/{id}/cancelar | Doctor |
+| GET · POST | /citas/admin/ausencias · /cuenta · /{id}/aprobar · /{id}/rechazar | Admin (aprobar bloquea la agenda) |
+| POST · GET | /historia/formulas · /historia/incapacidades · /historia/citas/{id}/documentos | Doctor |
+| GET | /historia/mia/documentos · /historia/documentos/{formula\|incapacidad}/{id}/pdf | Afiliado · Doctor que la expidió |
+| GET | /historia/verificar/{codigo} | Público (solo autenticidad, sin contenido clínico) |
+| GET | /tramites/remisiones/emitidas | Doctor |
+| POST | /auth/cambiar-clave | Con sesión |
 | GET · POST | /historia/pacientes/{id}?cita_id= · /historia/consultas · /alergias · /antecedentes | Doctor |
 | GET | /historia/mia · /historia/mia/accesos | Afiliado |
 | POST · GET | /tramites/remisiones · /tramites/remisiones/mias | Doctor · Afiliado |

@@ -9,18 +9,23 @@
 """
 import json
 import logging
-from datetime import date
+import secrets
+from datetime import date, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from .config import CLAVE_CIFRADO, CITAS_URL, AFILIADOS_URL
+from .config import CLAVE_CIFRADO, CITAS_URL, AFILIADOS_URL, FRONTEND_URL, DIAS_VIGENCIA_FORMULA
 from .db import engine, get_db
 from .internos import llamar, json_o_error
 from .migrar import aplicar
-from .schemas import ConsultaIn, AntecedenteIn, AlergiaIn
+from .schemas import ConsultaIn, AntecedenteIn, AlergiaIn, FormulaIn, IncapacidadIn
+from . import pdf
 from .seguridad import requiere_rol
-from .tiempo import hoy
+from zoneinfo import ZoneInfo
+from .tiempo import hoy, fecha_larga
+
+ZONA = ZoneInfo("America/Bogota")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("historia")
@@ -28,7 +33,7 @@ app = FastAPI(title="Libitina · Historia Clínica", version="1.0.0",
               description="Consultas, antecedentes y alergias cifrados, con auditoría de cada acceso.")
 solo_doctor, solo_afiliado = requiere_rol("doctor"), requiere_rol("afiliado")
 TABLAS = ["historias_clinicas", "consultas", "antecedentes", "alergias", "medicamentos_permanentes",
-          "discapacidades", "examenes", "log_accesos_historia"]
+          "discapacidades", "examenes", "log_accesos_historia", "formulas_medicas", "incapacidades"]
 
 
 @app.on_event("startup")
@@ -38,7 +43,7 @@ def migrar():
 
 @app.get("/health", tags=["Salud"])
 def salud():
-    """Conexión, 8 tablas, cifrado con la clave del servicio y auditoría inmutable."""
+    """Conexión, 10 tablas, cifrado con la clave del servicio y auditoría inmutable."""
     with engine.connect() as c:
         existentes = set(c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")).scalars())
         cifrado = c.execute(text("SELECT pgp_sym_decrypt(pgp_sym_encrypt('prueba', :k), :k) = 'prueba'"), {"k": CLAVE_CIFRADO}).scalar()
@@ -229,3 +234,194 @@ def accesos_a_mi_historia(afiliado_id: str, u: dict = Depends(solo_afiliado), db
     filas = db.execute(text("SELECT fecha, rol, accion, recurso, justificacion FROM log_accesos_historia "
                             "WHERE historia_id = :h ORDER BY fecha DESC LIMIT 50"), {"h": hid}).mappings().all()
     return [dict(f) for f in filas]
+
+
+
+# =====================================================================
+# Fórmulas médicas e incapacidades
+# =====================================================================
+ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sin 0/O ni 1/I
+
+
+def nuevo_codigo(db: Session) -> str:
+    while True:
+        c = "".join(secrets.choice(ALFABETO) for _ in range(8))
+        c = f"{c[:4]}-{c[4:]}"
+        ocupado = db.execute(text("SELECT 1 FROM formulas_medicas WHERE codigo_verificacion = :c UNION ALL "
+                                  "SELECT 1 FROM incapacidades WHERE codigo_verificacion = :c"), {"c": c}).first()
+        if not ocupado:
+            return c
+
+
+def url_verificacion(codigo: str) -> str:
+    return f"{FRONTEND_URL}/tramites/verificar-documento?codigo={codigo}"
+
+
+def consulta_de(db: Session, cita_id) -> dict:
+    fila = db.execute(text("SELECT id, historia_id, diagnostico_principal_cie10 AS cie10, pgp_sym_decrypt(diagnostico_principal_desc, :k) AS diag "
+                           "FROM consultas WHERE cita_id = :c"), {"k": CLAVE_CIFRADO, "c": str(cita_id)}).mappings().first()
+    if not fila:
+        raise HTTPException(422, "Primero registra la consulta de esta cita.")
+    return dict(fila)
+
+
+def regla_incapacidad(afiliado_id: str) -> str | None:
+    """La incapacidad con prestación económica es para el cotizante del régimen contributivo. Devuelve el motivo si no aplica."""
+    r = llamar("GET", f"{AFILIADOS_URL}/internal/afiliados/{afiliado_id}", "Afiliados")
+    a = json_o_error(r, "No pudimos consultar la afiliación del paciente.")
+    if a["regimen"] != "contributivo":
+        return "La incapacidad se expide a cotizantes del régimen contributivo; este paciente es del subsidiado."
+    if a["persona"]["id"] != a["titular"]["id"]:
+        return "La incapacidad se expide al cotizante; este paciente es beneficiario."
+    return None
+
+
+FORMULA_SQL = """SELECT id, cita_id, afiliado_id, paciente_nombre, paciente_documento, doctor_id, doctor_nombre, especialidad,
+                        pgp_sym_decrypt(medicamentos, :k) AS medicamentos, pgp_sym_decrypt(indicaciones, :k) AS indicaciones,
+                        codigo_verificacion AS codigo, vigente_hasta, creado_en, historia_id, consulta_id FROM formulas_medicas"""
+INCAPACIDAD_SQL = """SELECT id, cita_id, afiliado_id, paciente_nombre, paciente_documento, doctor_id, doctor_nombre, especialidad, tipo,
+                            fecha_inicio, dias, fecha_fin, pgp_sym_decrypt(diagnostico, :k) AS diagnostico,
+                            pgp_sym_decrypt(observaciones, :k) AS observaciones, codigo_verificacion AS codigo, creado_en, historia_id
+                     FROM incapacidades"""
+
+
+def formula_out(f) -> dict:
+    d = dict(f)
+    d["medicamentos"] = json.loads(d["medicamentos"])
+    return {k: v for k, v in d.items() if k not in ("historia_id", "consulta_id")}
+
+
+def incapacidad_out(i) -> dict:
+    d = dict(i)
+    d.pop("historia_id", None)
+    d["tipo_texto"] = pdf.TIPOS_INCAPACIDAD[d["tipo"]]
+    return d
+
+
+def una(db: Session, sql: str, where: str, **p):
+    return db.execute(text(f"{sql} WHERE {where}"), {"k": CLAVE_CIFRADO, **p}).mappings().first()
+
+
+@app.post("/historia/formulas", status_code=201, tags=["Doctor"])
+def expedir_formula(datos: FormulaIn, request: Request, u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    c = cita_del_doctor(datos.cita_id, u["sub"])
+    cons = consulta_de(db, datos.cita_id)
+    if db.execute(text("SELECT 1 FROM formulas_medicas WHERE consulta_id = :c"), {"c": cons["id"]}).first():
+        raise HTTPException(409, "Esta consulta ya tiene una fórmula médica.")
+    fid = db.execute(text("""
+        INSERT INTO formulas_medicas (historia_id, consulta_id, cita_id, afiliado_id, paciente_nombre, paciente_documento, doctor_id,
+                                      doctor_nombre, especialidad, medicamentos, indicaciones, codigo_verificacion, vigente_hasta)
+        VALUES (:h, :cons, :cita, :af, :pn, :pd, :doc, :dn, :esp, pgp_sym_encrypt(:meds, :k), pgp_sym_encrypt(:ind, :k), :cod, :vig)
+        RETURNING id"""), {
+        "h": cons["historia_id"], "cons": cons["id"], "cita": str(datos.cita_id), "af": c["afiliado_id"], "pn": c["paciente"],
+        "pd": c["paciente_documento"], "doc": u["sub"], "dn": u.get("nombre"), "esp": c["especialidad"], "k": CLAVE_CIFRADO,
+        "meds": json.dumps([m.model_dump() for m in datos.medicamentos], ensure_ascii=False),
+        "ind": (datos.indicaciones or "").strip() or None, "cod": nuevo_codigo(db), "vig": hoy() + timedelta(days=DIAS_VIGENCIA_FORMULA)}).scalar()
+    registrar_acceso(db, cons["historia_id"], u["sub"], "doctor", "creacion", "formula", ip(request), f"Fórmula de la cita del {c['fecha']}")
+    db.commit()
+    return formula_out(una(db, FORMULA_SQL, "id = :i", i=fid))
+
+
+@app.post("/historia/incapacidades", status_code=201, tags=["Doctor"])
+def expedir_incapacidad(datos: IncapacidadIn, request: Request, u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    c = cita_del_doctor(datos.cita_id, u["sub"])
+    cons = consulta_de(db, datos.cita_id)
+    if db.execute(text("SELECT 1 FROM incapacidades WHERE consulta_id = :c"), {"c": cons["id"]}).first():
+        raise HTTPException(409, "Esta consulta ya tiene una incapacidad.")
+    motivo = regla_incapacidad(c["afiliado_id"])
+    if motivo:
+        raise HTTPException(422, motivo)
+    dia_cita = date.fromisoformat(str(c["fecha"]))
+    inicio = datos.fecha_inicio or dia_cita
+    if not dia_cita - timedelta(days=3) <= inicio <= dia_cita:
+        raise HTTPException(422, "La incapacidad empieza el día de la consulta o hasta 3 días antes.")
+    iid = db.execute(text("""
+        INSERT INTO incapacidades (historia_id, consulta_id, cita_id, afiliado_id, paciente_nombre, paciente_documento, doctor_id, doctor_nombre,
+                                   especialidad, tipo, fecha_inicio, dias, fecha_fin, diagnostico, observaciones, codigo_verificacion)
+        VALUES (:h, :cons, :cita, :af, :pn, :pd, :doc, :dn, :esp, :tipo, :ini, :dias, :fin, pgp_sym_encrypt(:diag, :k),
+                pgp_sym_encrypt(:obs, :k), :cod)
+        RETURNING id"""), {
+        "h": cons["historia_id"], "cons": cons["id"], "cita": str(datos.cita_id), "af": c["afiliado_id"], "pn": c["paciente"],
+        "pd": c["paciente_documento"], "doc": u["sub"], "dn": u.get("nombre"), "esp": c["especialidad"], "tipo": datos.tipo,
+        "ini": inicio, "dias": datos.dias, "fin": inicio + timedelta(days=datos.dias - 1), "k": CLAVE_CIFRADO,
+        "diag": f"{cons['cie10']} · {cons['diag']}", "obs": (datos.observaciones or "").strip() or None, "cod": nuevo_codigo(db)}).scalar()
+    registrar_acceso(db, cons["historia_id"], u["sub"], "doctor", "creacion", "incapacidad", ip(request), f"Incapacidad de la cita del {c['fecha']}")
+    db.commit()
+    return incapacidad_out(una(db, INCAPACIDAD_SQL, "id = :i", i=iid))
+
+
+@app.get("/historia/citas/{cita_id}/documentos", tags=["Doctor"])
+def documentos_de_la_cita(cita_id: str, u: dict = Depends(solo_doctor), db: Session = Depends(get_db)):
+    """Lo que el doctor ya expidió en esta cita y si al paciente le aplica incapacidad."""
+    c = cita_del_doctor(cita_id, u["sub"])
+    f = una(db, FORMULA_SQL, "cita_id = :c", c=cita_id)
+    i = una(db, INCAPACIDAD_SQL, "cita_id = :c", c=cita_id)
+    try:
+        motivo = regla_incapacidad(c["afiliado_id"])
+    except HTTPException:
+        motivo = "No pudimos consultar la afiliación del paciente."
+    return {"formula": formula_out(f) if f else None, "incapacidad": incapacidad_out(i) if i else None,
+            "puede_incapacidad": motivo is None, "motivo_incapacidad": motivo}
+
+
+@app.get("/historia/mia/documentos", tags=["Afiliado"])
+def mis_documentos(afiliado_id: str, u: dict = Depends(solo_afiliado), db: Session = Depends(get_db)):
+    persona_permitida(u["sub"], afiliado_id)
+    formulas = db.execute(text(f"{FORMULA_SQL} WHERE afiliado_id = :a ORDER BY creado_en DESC"), {"k": CLAVE_CIFRADO, "a": afiliado_id}).mappings().all()
+    incap = db.execute(text(f"{INCAPACIDAD_SQL} WHERE afiliado_id = :a ORDER BY creado_en DESC"), {"k": CLAVE_CIFRADO, "a": afiliado_id}).mappings().all()
+    return {"formulas": [formula_out(f) for f in formulas], "incapacidades": [incapacidad_out(i) for i in incap]}
+
+
+@app.get("/historia/documentos/{tipo}/{documento_id}/pdf", tags=["Afiliado"])
+def documento_pdf(tipo: str, documento_id: str, request: Request, u: dict = Depends(requiere_rol("afiliado", "doctor")),
+                  db: Session = Depends(get_db)):
+    """PDF de una fórmula o incapacidad: lo descarga el paciente (o su titular si es menor) o el doctor que la expidió."""
+    if tipo not in ("formula", "incapacidad"):
+        raise HTTPException(404, "Documento no encontrado.")
+    try:
+        d = una(db, FORMULA_SQL if tipo == "formula" else INCAPACIDAD_SQL, "id = :i", i=documento_id)
+    except Exception:  # noqa: BLE001 - id con formato inválido
+        db.rollback()
+        d = None
+    if not d:
+        raise HTTPException(404, "Documento no encontrado.")
+    if u["rol"] == "doctor":
+        if str(d["doctor_id"]) != u["sub"]:
+            raise HTTPException(403, "Solo puedes descargar los documentos que tú expediste.")
+    else:
+        persona_permitida(u["sub"], str(d["afiliado_id"]))
+    registrar_acceso(db, d["historia_id"], u["sub"], u["rol"], "exportacion", tipo, ip(request), f"Descarga del PDF {d['codigo']}")
+    db.commit()
+    base = {**dict(d), "expedida_texto": fecha_larga(d["creado_en"].astimezone(ZONA).date())}
+    if tipo == "formula":
+        cons = db.execute(text("SELECT diagnostico_principal_cie10 AS cie10, pgp_sym_decrypt(diagnostico_principal_desc, :k) AS diag "
+                               "FROM consultas WHERE cita_id = :c"), {"k": CLAVE_CIFRADO, "c": str(d["cita_id"])}).mappings().first()
+        contenido = pdf.formula_medica({**base, "medicamentos": json.loads(d["medicamentos"]), "vigente_texto": fecha_larga(d["vigente_hasta"]),
+                                        "diagnostico": f"{cons['cie10']} · {cons['diag']}" if cons else ""}, url_verificacion(d["codigo"]))
+        nombre = f"formula-{d['codigo']}.pdf"
+    else:
+        contenido = pdf.incapacidad({**base, "inicio_texto": fecha_larga(d["fecha_inicio"]), "fin_texto": fecha_larga(d["fecha_fin"])},
+                                    url_verificacion(d["codigo"]))
+        nombre = f"incapacidad-{d['codigo']}.pdf"
+    return Response(contenido, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+def ocultar(texto: str) -> str:
+    return " ".join(p[0] + "***" for p in (texto or "").split() if p)
+
+
+@app.get("/historia/verificar/{codigo}", tags=["Público"])
+def verificar_documento(codigo: str, db: Session = Depends(get_db)):
+    """Pública. Confirma que una fórmula o incapacidad es auténtica, sin revelar su contenido clínico."""
+    cod = codigo.strip().upper()[:9]
+    f = db.execute(text("SELECT 'formula' AS tipo, creado_en, doctor_nombre, especialidad, paciente_nombre, paciente_documento, "
+                        "vigente_hasta AS hasta FROM formulas_medicas WHERE codigo_verificacion = :c UNION ALL "
+                        "SELECT 'incapacidad', creado_en, doctor_nombre, especialidad, paciente_nombre, paciente_documento, NULL "
+                        "FROM incapacidades WHERE codigo_verificacion = :c"), {"c": cod}).mappings().first()
+    if not f:
+        return {"valido": False}
+    doc = f["paciente_documento"] or ""
+    return {"valido": True, "tipo": f["tipo"], "tipo_texto": "Fórmula médica" if f["tipo"] == "formula" else "Certificado de incapacidad",
+            "expedido": f["creado_en"].astimezone(ZONA).date(), "profesional": f["doctor_nombre"], "especialidad": f["especialidad"],
+            "paciente": ocultar(f["paciente_nombre"]), "documento": f"{doc.split(' ')[0]} ****{doc[-4:]}" if doc else "",
+            "vigente": f["hasta"] is None or f["hasta"] >= hoy(), "vigente_hasta": f["hasta"]}
