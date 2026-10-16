@@ -1,8 +1,11 @@
-// Datos de contacto: reemplázalos por los reales de la universidad.
+// Datos de contacto. Lo que se muestra es de la EPS ficticia; los enlaces (al hacer clic para
+// escribir o llamar) llevan al contacto real del proyecto académico.
 export const CONTACTO = {
-  correo: '[correo universitario]',
-  telefono: '[teléfono de la U]',
-  horario: '[horario de atención]',
+  correo: 'atencion@libitina.co',
+  telefono: 'Línea gratuita 01 8000 000 000',
+  horario: 'Lun a vie, 8:00 a. m. a 8:00 p. m.',
+  enlaceCorreo: 'mailto:sesguerra34@ucatolica.edu.co',
+  enlaceTelefono: 'tel:+573209564051',
   instagram: 'https://www.instagram.com/ucatolicaco/',
   facebook: 'https://www.facebook.com/ucatolicadecolombia',
 };

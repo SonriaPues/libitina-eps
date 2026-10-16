@@ -137,8 +137,8 @@ export default function Inicio() {
             <span className="text-[15px] text-azul-200">Escríbenos o llámanos, te respondemos.</span>
           </div>
           <div className="flex flex-wrap items-center gap-8 md:gap-10">
-            <a href={`mailto:${CONTACTO.correo}`} className="flex flex-col gap-1"><span className="text-xs tracking-wide text-dorado-400">Correo</span><span className="font-display text-lg font-bold text-white">{CONTACTO.correo}</span></a>
-            <a href={`tel:${CONTACTO.telefono}`} className="flex flex-col gap-1"><span className="text-xs tracking-wide text-dorado-400">Teléfono</span><span className="font-display text-lg font-bold text-white">{CONTACTO.telefono}</span></a>
+            <a href={CONTACTO.enlaceCorreo} className="flex flex-col gap-1"><span className="text-xs tracking-wide text-dorado-400">Correo</span><span className="font-display text-lg font-bold text-white">{CONTACTO.correo}</span></a>
+            <a href={CONTACTO.enlaceTelefono} className="flex flex-col gap-1"><span className="text-xs tracking-wide text-dorado-400">Teléfono</span><span className="font-display text-lg font-bold text-white">{CONTACTO.telefono}</span></a>
             <div className="flex gap-2.5">
               <a href={CONTACTO.instagram} target="_blank" rel="noreferrer" aria-label="Instagram de la Universidad Católica de Colombia" className="flex h-12 w-12 items-center justify-center rounded-full border-[1.5px] border-azul-400 text-white hover:bg-azul-800"><Icono.instagram width={20} height={20} /></a>
               <a href={CONTACTO.facebook} target="_blank" rel="noreferrer" aria-label="Facebook de la Universidad Católica de Colombia" className="flex h-12 w-12 items-center justify-center rounded-full border-[1.5px] border-azul-400 text-white hover:bg-azul-800"><Icono.facebook width={20} height={20} /></a>
