@@ -61,5 +61,6 @@ class UsuarioInterno(BaseModel):
 
 class CambioInterno(BaseModel):
     activo: bool | None = None
+    email_verificado: bool | None = None
     nombres: str | None = Field(default=None, min_length=1, max_length=80)
     apellidos: str | None = Field(default=None, min_length=1, max_length=80)

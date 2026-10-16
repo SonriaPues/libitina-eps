@@ -191,6 +191,8 @@ def cambiar_usuario(usuario_id: str, datos: CambioInterno, db: Session = Depends
         u.nombres = datos.nombres
     if datos.apellidos:
         u.apellidos = datos.apellidos
+    if datos.email_verificado is not None:
+        u.email_verificado = datos.email_verificado
     if datos.activo is not None:
         u.activo = datos.activo
         if not datos.activo:  # cierra sus sesiones abiertas

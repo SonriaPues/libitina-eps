@@ -9,3 +9,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Datos de demostración (traen contraseñas)
+datos-demo*.json
+*.xlsx

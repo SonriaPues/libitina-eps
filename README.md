@@ -147,6 +147,17 @@ python pruebas/e2e_atencion.py
 GitHub Actions la corre en **cada push**, con todo el sistema levantado en Docker, y además comprueba que un
 servicio no pueda entrar a la base de otro.
 
+## Datos de demostración
+
+`infra/demo/sembrar.py` carga doctores con sus turnos y afiliados ya aprobados a través de las API de cada servicio
+(así se aplican las mismas reglas de la página). Los datos vienen en un JSON con contraseñas que **no se sube al
+repositorio** (`datos-demo*.json` está en `.gitignore`). Las cuentas usan el dominio `demo.libitina.co`, al que el
+worker de Notificaciones no envía correos (`DOMINIOS_SIN_ENVIO`): quedan en la campanita con estado `omitido`.
+
+```bash
+bash infra/demo/cargar.sh datos-demo.json     # se puede repetir: no duplica nada
+```
+
 ## Despliegue
 
 En Azure for Students, sobre una máquina virtual con Docker Compose. Paso a paso en

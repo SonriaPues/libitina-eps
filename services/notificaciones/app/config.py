@@ -10,3 +10,5 @@ SMTP_CLAVE = os.getenv("SMTP_CLAVE", "")
 SMTP_TLS = os.getenv("SMTP_TLS", "false").lower() == "true"
 CORREO_REMITENTE = os.getenv("CORREO_REMITENTE", "Libitina EPS <no-responder@libitina.co>")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+# Correos de estos dominios se registran (campanita) pero no se envían: cuentas de demostración.
+DOMINIOS_SIN_ENVIO = {d.strip().lower() for d in os.getenv("DOMINIOS_SIN_ENVIO", "demo.libitina.co").split(",") if d.strip()}

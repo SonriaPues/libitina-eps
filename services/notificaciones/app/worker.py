@@ -39,6 +39,10 @@ def enviar_notificacion(evento, origen, usuario_id, email, variables, enlace="",
 def despachar(self, notificacion_id):
     with SessionLocal() as db:
         n = db.get(Notificacion, notificacion_id)
+        if n.email_destino.rsplit("@", 1)[-1].lower() in config.DOMINIOS_SIN_ENVIO:
+            n.estado = "omitido"   # cuenta de demostración: queda en la campanita, no sale por SMTP
+            db.commit()
+            return
         intento = (db.scalar(select(func.count()).select_from(LogEnvio).where(LogEnvio.notificacion_id == n.id)) or 0) + 1
         try:
             enviar(n.email_destino, n.asunto, n.cuerpo_html)

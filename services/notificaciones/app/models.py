@@ -27,7 +27,7 @@ class Notificacion(Base):
     cuerpo_html: Mapped[str] = mapped_column(Text)
     resumen: Mapped[str] = mapped_column(String(255))
     enlace: Mapped[str | None] = mapped_column(String(255))
-    estado: Mapped[str] = mapped_column(ENUM("pendiente", "enviado", "fallido", name="estado_envio", create_type=False), server_default="pendiente")
+    estado: Mapped[str] = mapped_column(ENUM("pendiente", "enviado", "fallido", "omitido", name="estado_envio", create_type=False), server_default="pendiente")
     origen: Mapped[str] = mapped_column(ENUM("autenticacion", "afiliados", "prestadores", "historia_clinica", "tramites", "citas", "admin", name="origen_evento", create_type=False))
     evento: Mapped[str] = mapped_column(String(60))
     referencia_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
