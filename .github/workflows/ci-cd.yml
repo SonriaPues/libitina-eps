@@ -98,3 +98,7 @@ jobs:
       - name: Servidor sin configurar
         if: steps.revisar.outputs.listo != 'true'
         run: echo "Aún no hay servidor (secreto AZURE_HOST vacío). Las pruebas pasaron; se omite el despliegue."
+
+
+          echo "LIMITE_SENSIBLE_POR_MINUTO=500" >> .env
+          echo "LIMITE_POR_MINUTO=5000" >> .env
