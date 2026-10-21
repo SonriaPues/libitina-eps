@@ -100,5 +100,6 @@ jobs:
         run: echo "Aún no hay servidor (secreto AZURE_HOST vacío). Las pruebas pasaron; se omite el despliegue."
 
 
+          # Las pruebas inician sesión muchas veces seguidas: se sube el límite solo aquí
           echo "LIMITE_SENSIBLE_POR_MINUTO=500" >> .env
           echo "LIMITE_POR_MINUTO=5000" >> .env
