@@ -38,6 +38,7 @@ import Especialidades from './pages/admin/Especialidades.jsx';
 import BandejaPqrsd from './pages/admin/Pqrsd.jsx';
 import Horarios from './pages/admin/Horarios.jsx';
 import BandejaAusencias from './pages/admin/Ausencias.jsx';
+import Microservicios from './pages/admin/Microservicios.jsx';
 import InicioDoctor from './pages/doctor/Inicio.jsx';
 import PacientesDoctor from './pages/doctor/Pacientes.jsx';
 import RemisionesDoctor from './pages/doctor/Remisiones.jsx';
@@ -92,6 +93,7 @@ export default function App() {
         <Route path="/doctor/remisiones" element={<ProtectedRoute rol="doctor"><RemisionesDoctor /></ProtectedRoute>} />
         <Route path="/doctor/ausencias" element={<ProtectedRoute rol="doctor"><AusenciasDoctor /></ProtectedRoute>} />
         <Route path="/mi-cuenta" element={<ProtectedRoute><MiCuenta /></ProtectedRoute>} />
+        <Route path="/microservicios" element={<ProtectedRoute rol="admin"><Microservicios /></ProtectedRoute>} />
         <Route path="/admin/ausencias" element={<ProtectedRoute rol="admin"><BandejaAusencias /></ProtectedRoute>} />
         <Route path="/doctor/citas/:id" element={<ProtectedRoute rol="doctor"><AtencionCita /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute rol="admin"><PanelAdmin /></ProtectedRoute>} />
