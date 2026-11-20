@@ -104,6 +104,14 @@ def logout(datos: RefreshIn, db: Session = Depends(get_db)):
     db.commit()
 
 
+@app.post("/auth/cerrar-sesiones", status_code=204, tags=["Sesión"])
+def cerrar_sesiones(token: dict = Depends(usuario_del_token), db: Session = Depends(get_db)):
+    """Cierra la sesión en todos los dispositivos: anula todos los refresh tokens del usuario.
+    Los accesos ya emitidos vencen solos en máximo JWT_MINUTOS (30 min)."""
+    db.execute(update(RefreshToken).where(RefreshToken.usuario_id == token["sub"], RefreshToken.revocado.is_(False)).values(revocado=True))
+    db.commit()
+
+
 @app.post("/auth/cambiar-clave", status_code=204, tags=["Sesión"])
 def cambiar_clave(datos: CambioClaveIn, token: dict = Depends(usuario_del_token), db: Session = Depends(get_db)):
     """Cambio de contraseña con sesión iniciada. Cierra las demás sesiones abiertas."""

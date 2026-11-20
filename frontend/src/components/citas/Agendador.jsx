@@ -10,7 +10,7 @@ const TOTAL_DIAS = 31;
 const JORNADAS = [['Mañana', (h) => h < '12:00'], ['Tarde', (h) => h >= '12:00' && h < '18:00'], ['Noche', (h) => h >= '18:00']];
 
 // Paso a paso para agendar (o reagendar): paciente → especialidad → sede → día → hora → motivo → confirmar.
-// El afiliado elige día y hora; el profesional lo asigna el sistema y se muestra al confirmar.
+// El afiliado puede elegir el profesional o dejar «Cualquiera disponible» (el sistema asigna el de menos citas ese día).
 export default function Agendador({ personas, especialidades, sedes, sedeInicial, remisiones, cuota, reagendar, inicial = {}, onListo, onCancelar }) {
   const [pacienteId, setPacienteId] = useState(reagendar?.afiliado_id ?? inicial.pacienteId ?? personas[0]?.id);
   const [codigo, setCodigo] = useState(reagendar?.especialidad_codigo ?? inicial.codigo ?? '');
@@ -19,6 +19,7 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
   const [inicio, setInicio] = useState(0);              // primer día visible de la franja (índice)
   const [dia, setDia] = useState(null);
   const [hora, setHora] = useState(null);
+  const [doctor, setDoctor] = useState('');            // '' = cualquiera disponible
   const [motivo, setMotivo] = useState('');
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -43,7 +44,7 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
   const pedido = useRef(0);       // descarta respuestas de una sede o especialidad que ya no está elegida
   const cargar = () => {
     const mio = ++pedido.current;
-    setDias(null); setDia(null); setHora(null); setError(''); setInicio(0);
+    setDias(null); setDia(null); setHora(null); setError(''); setInicio(0); setDoctor('');
     if (!codigo || bloqueada || !sede) return;
     citasApi.disponibilidad(codigo, sede).then((d) => {
       if (mio !== pedido.current) return;
@@ -55,7 +56,23 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
   useEffect(cargar, [codigo, sede, bloqueada]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Franja de 31 días: los que no tienen cupo se ven apagados.
-  const libres = useMemo(() => Object.fromEntries((dias ?? []).map((d) => [d.fecha, d.horas])), [dias]);
+  // Profesionales con cupo en esta sede; al elegir uno, los días y horas se filtran a su agenda.
+  const profesionales = useMemo(() => {
+    const m = new Map();
+    (dias ?? []).forEach((d) => d.horarios.forEach((x) => { if (x.punto_atencion_id === sede) m.set(x.doctor_id, x.doctor); }));
+    return [...m].map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [dias, sede]);
+  const libres = useMemo(() => Object.fromEntries((dias ?? []).map((d) => {
+    const horas = [...new Set(d.horarios.filter((x) => x.punto_atencion_id === sede && (!doctor || x.doctor_id === doctor)).map((x) => x.hora))]
+      .sort().map((h) => ({ hora: h }));
+    return [d.fecha, horas];
+  })), [dias, sede, doctor]);
+  useEffect(() => {                     // al cambiar de profesional, ir a su primer día con cupo
+    if (!dias || libres[dia]?.length) return;
+    const primero = dias.find((d) => libres[d.fecha]?.length)?.fecha;
+    if (primero) { setDia(primero); const i = fechas.indexOf(primero); setInicio(Math.max(0, Math.min(Math.floor(i / DIAS_VISIBLES) * DIAS_VISIBLES, TOTAL_DIAS - DIAS_VISIBLES))); }
+  }, [doctor]); // eslint-disable-line react-hooks/exhaustive-deps
+  const libresEnHora = (dias ?? []).find((d) => d.fecha === dia)?.horarios.filter((x) => x.hora === hora && x.punto_atencion_id === sede) ?? [];
   const visibles = fechas.slice(inicio, inicio + DIAS_VISIBLES);
   const horas = libres[dia] ?? [];
 
@@ -63,7 +80,7 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
     if (!hora) return setError('Elige una hora.');
     if (!reagendar && motivo.trim().length < 5) return setError('Cuéntanos brevemente el motivo de la cita.');
     setEnviando(true); setError('');
-    const base = { punto_atencion_id: sede, fecha: dia, hora };
+    const base = { punto_atencion_id: sede, fecha: dia, hora, ...(doctor ? { doctor_id: doctor } : {}) };
     try {
       setHecha(reagendar ? await citasApi.reagendar(reagendar.id, base)
         : await citasApi.agendar({ ...base, afiliado_id: pacienteId, especialidad_codigo: codigo, motivo: motivo.trim() }));
@@ -138,6 +155,11 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
           {dias?.length === 0 && <Alerta tipo="aviso">No hay horarios disponibles en los próximos 30 días en esta sede. Prueba con otra sede o vuelve a revisar más tarde.</Alerta>}
           {dias?.length > 0 && (
             <>
+              <Campo etiqueta="Profesional" className="sm:max-w-md">{(id) => (
+                <select id={id} className="campo" value={doctor} onChange={(e) => { setDoctor(e.target.value); setHora(null); }}>
+                  <option value="">Cualquiera disponible</option>
+                  {profesionales.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>)}</Campo>
               <div className="flex flex-col gap-2.5">
                 <div className="flex items-center justify-between"><span className="etiqueta">Día</span>
                   <span className="hidden text-sm text-azul-500 sm:inline">{fechaLarga(visibles[0])} – {fechaLarga(visibles[visibles.length - 1])}</span></div>
@@ -185,7 +207,7 @@ export default function Agendador({ personas, especialidades, sedes, sedeInicial
             <div className="flex flex-col gap-4 rounded-[16px] bg-azul-50 p-5">
               <dl className="grid gap-3 sm:grid-cols-2">
                 {[['Fecha y hora', `${fechaLarga(dia)}, ${hora12(hora)}`], ['Sede', nombreSede(sede)],
-                  ['Profesional', 'Se asigna al confirmar'], ['Cuota moderadora', reagendar ? 'Igual a la de la cita original' : cuota ? pesos(cuota) : 'No aplica']].map(([k, v]) => (
+                  ['Profesional', doctor ? profesionales.find((p) => p.id === doctor)?.nombre : libresEnHora.length === 1 ? libresEnHora[0].doctor : `Se asigna al confirmar (${libresEnHora.length} disponibles)`], ['Cuota moderadora', reagendar ? 'Igual a la de la cita original' : cuota ? pesos(cuota) : 'No aplica']].map(([k, v]) => (
                   <div key={k}><dt className="text-xs tracking-wide text-dorado-700">{k}</dt><dd className="text-[15px] font-semibold first-letter:uppercase">{v}</dd></div>))}
               </dl>
               {!reagendar && <Campo etiqueta="Motivo de la consulta">{(id) => <textarea id={id} className="campo h-auto min-h-[84px] bg-white py-3" maxLength={500} placeholder="Ej.: control de presión arterial, dolor de cabeza frecuente…" value={motivo} onChange={(e) => setMotivo(e.target.value)} />}</Campo>}

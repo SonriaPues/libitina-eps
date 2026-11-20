@@ -21,6 +21,27 @@ def horas_del_turno(t: Turno, duracion: int):
         h = sumar_minutos(h, duracion)
 
 
+def rango(dia: date, ini: time, fin: time) -> tuple[datetime, datetime]:
+    """Inicio y fin reales de una cita; si termina a medianoche o después, el fin cae al día siguiente."""
+    a, b = datetime.combine(dia, ini), datetime.combine(dia, fin)
+    return a, b + timedelta(days=1) if b <= a else b
+
+
+def se_cruzan(x: tuple, y: tuple) -> bool:
+    return x[0] < y[1] and y[0] < x[1]
+
+
+def cita_que_cruza(db: Session, dia: date, ini: time, fin: time, *, doctor_id=None, afiliado_id=None, excluir=None) -> Cita | None:
+    """Una cita activa del doctor (o del paciente) que se cruce con [ini, fin) ese día, aunque empiece a otra hora.
+    La base de datos lo impide también (restricciones ex_cita_*_sin_cruce); esto da un mensaje claro antes."""
+    q = select(Cita).where(Cita.estado.in_(ACTIVAS), Cita.fecha.between(dia - timedelta(days=1), dia))
+    q = q.where(Cita.doctor_id == doctor_id) if doctor_id else q.where(Cita.afiliado_id == afiliado_id)
+    if excluir:
+        q = q.where(Cita.id != excluir)
+    pedido = rango(dia, ini, fin)
+    return next((c for c in db.scalars(q) if se_cruzan(pedido, rango(c.fecha, c.hora_inicio, c.hora_fin))), None)
+
+
 def bloqueado(excepciones: list[Excepcion], doctor_id, dia: date) -> bool:
     return any(e.doctor_id == doctor_id and e.fecha_inicio <= dia <= e.fecha_fin for e in excepciones)
 
@@ -37,8 +58,10 @@ def disponibilidad(db: Session, codigo: str, desde: date, dias: int, punto_id=No
     turnos = list(db.scalars(q))
     excepciones = list(db.scalars(select(Excepcion).where(Excepcion.doctor_id.in_(doctores), Excepcion.fecha_fin >= desde,
                                                          Excepcion.fecha_inicio <= hasta)))
-    ocupados = set(db.execute(select(Cita.doctor_id, Cita.fecha, Cita.hora_inicio).where(
-        Cita.doctor_id.in_(doctores), Cita.fecha.between(desde, hasta), Cita.estado.in_(ACTIVAS))).all())
+    ocupados: dict = {}                 # doctor → rangos ocupados (se compara por cruce, no solo por hora exacta)
+    for doc, f, i, fin in db.execute(select(Cita.doctor_id, Cita.fecha, Cita.hora_inicio, Cita.hora_fin).where(
+            Cita.doctor_id.in_(doctores), Cita.fecha.between(desde - timedelta(days=1), hasta), Cita.estado.in_(ACTIVAS))):
+        ocupados.setdefault(doc, []).append(rango(f, i, fin))
     limite = ahora() + timedelta(minutes=config.MINUTOS_MINIMOS_PARA_AGENDAR)
 
     resultado = []
@@ -50,7 +73,8 @@ def disponibilidad(db: Session, codigo: str, desde: date, dias: int, punto_id=No
             if t.dia_semana != dia.weekday() or bloqueado(excepciones, d.doctor_id, dia):
                 continue
             for h in horas_del_turno(t, d.duracion_cita_min):
-                if (d.doctor_id, dia, h) in ocupados or datetime.combine(dia, h) < limite:
+                slot = rango(dia, h, sumar_minutos(h, d.duracion_cita_min))
+                if datetime.combine(dia, h) < limite or any(se_cruzan(slot, o) for o in ocupados.get(d.doctor_id, [])):
                     continue
                 horarios.append({"hora": h.strftime("%H:%M"), "doctor_id": str(d.doctor_id), "doctor": d.nombre_completo,
                                  "punto_atencion_id": str(t.punto_atencion_id)})
@@ -65,7 +89,7 @@ def disponibilidad(db: Session, codigo: str, desde: date, dias: int, punto_id=No
     return resultado
 
 
-def validar_horario(db: Session, d: Doctor, punto_id, dia: date, h: time) -> time:
+def validar_horario(db: Session, d: Doctor, punto_id, dia: date, h: time, excluir=None) -> time:
     """Comprueba que el horario pedido exista en la agenda y devuelve la hora de fin."""
     if not d.activo:
         raise HTTPException(422, "El profesional no está recibiendo citas en este momento.")
@@ -80,7 +104,10 @@ def validar_horario(db: Session, d: Doctor, punto_id, dia: date, h: time) -> tim
     excepciones = list(db.scalars(select(Excepcion).where(Excepcion.doctor_id == d.doctor_id)))
     if bloqueado(excepciones, d.doctor_id, dia):
         raise HTTPException(422, "El profesional no atiende ese día.")
-    return sumar_minutos(h, d.duracion_cita_min)
+    fin = sumar_minutos(h, d.duracion_cita_min)
+    if cita_que_cruza(db, dia, h, fin, doctor_id=d.doctor_id, excluir=excluir):
+        raise HTTPException(409, "El profesional ya tiene una cita en ese horario. Elige otra hora u otro profesional.")
+    return fin
 
 
 def guardar_doctor(db: Session, copia: dict) -> None:
@@ -92,18 +119,14 @@ def guardar_doctor(db: Session, copia: dict) -> None:
                                           set_={**{k: stmt.excluded[k] for k in valores if k != "doctor_id"}, "actualizado_en": func.now()}))
 
 
-def elegir_doctor(db: Session, codigo: str, punto_id, dia: date, h: time) -> Doctor:
+def elegir_doctor(db: Session, codigo: str, punto_id, dia: date, h: time, excluir=None) -> Doctor:
     """Asignación automática: entre los profesionales de la especialidad con ese horario libre en esa sede,
     el que tenga menos citas ese día (así la carga se reparte)."""
     candidatos = []
     for d in db.scalars(select(Doctor).where(Doctor.activo, Doctor.especialidad_codigo == codigo)):
         try:
-            validar_horario(db, d, punto_id, dia, h)
+            validar_horario(db, d, punto_id, dia, h, excluir)     # incluye que no tenga otra cita cruzada
         except HTTPException:
-            continue
-        ocupado = db.scalar(select(Cita.id).where(Cita.doctor_id == d.doctor_id, Cita.fecha == dia, Cita.hora_inicio == h,
-                                                  Cita.estado.in_(ACTIVAS)))
-        if ocupado:
             continue
         carga = db.scalar(select(func.count()).select_from(Cita).where(Cita.doctor_id == d.doctor_id, Cita.fecha == dia,
                                                                        Cita.estado.in_(ACTIVAS)))

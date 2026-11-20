@@ -41,7 +41,8 @@ function PerfilProfesional() {
 
 // Mi cuenta: datos de la sesión, cambio de contraseña y (para doctores) el perfil profesional.
 export default function MiCuenta() {
-  const { usuario, iniciarSesion } = useAuth();
+  const { usuario, iniciarSesion, cerrarSesion } = useAuth();
+  const [cerrando, setCerrando] = useState(false);
   const Panel = PANEL[usuario?.rol] ?? PanelAfiliado;
   const [f, setF] = useState({ actual: '', nueva: '', nueva2: '' });
   const [error, setError] = useState('');
@@ -72,6 +73,17 @@ export default function MiCuenta() {
               <dl className="grid gap-4 sm:grid-cols-2"><Dato k="Nombre" v={usuario?.nombre} /><Dato k="Rol" v={ROL[usuario?.rol]} /><div className="sm:col-span-2 break-all"><Dato k="Correo" v={usuario?.correo} /></div></dl>
             </section>
             {usuario?.rol === 'doctor' && <PerfilProfesional />}
+            <section className="tarjeta flex flex-col gap-3 p-6">
+              <h2 className="text-lg font-extrabold">Sesiones abiertas</h2>
+              <p className="text-sm text-azul-700">Si iniciaste sesión en un equipo que no es tuyo o perdiste tu celular, cierra la sesión en todos los dispositivos. Tendrás que volver a iniciar sesión aquí también.</p>
+              <button type="button" disabled={cerrando} className="btn border-[1.5px] border-azul-200 self-start px-5 py-2 text-azul-800"
+                onClick={async () => {
+                  if (!window.confirm('¿Cerrar la sesión en todos tus dispositivos?')) return;
+                  setCerrando(true);
+                  try { await authApi.cerrarSesiones(); await cerrarSesion(); window.location.assign('/iniciar-sesion'); }
+                  catch (err) { setError(err.message); setCerrando(false); }
+                }}>{cerrando ? 'Cerrando…' : 'Cerrar sesión en todos los dispositivos'}</button>
+            </section>
           </div>
           <form onSubmit={cambiar} className="tarjeta flex flex-col gap-4 p-6 lg:col-span-2" noValidate>
             <h2 className="text-lg font-extrabold">Cambiar contraseña</h2>

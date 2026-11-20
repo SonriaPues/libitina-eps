@@ -70,6 +70,21 @@ def excede_limite(clave: str, limite: int) -> bool:
     return False
 
 
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",   # React usa atributos style
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "frame-src blob:",                      # vista previa de PDF generados
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+
+
 @app.middleware("http")
 async def seguridad(request: Request, siguiente):
     respuesta = await siguiente(request)
@@ -77,6 +92,9 @@ async def seguridad(request: Request, siguiente):
                               "Referrer-Policy": "strict-origin-when-cross-origin",
                               "Permissions-Policy": "camera=(), microphone=(), geolocation=()"})
     ruta = request.url.path
+    if not ruta.startswith("/api/"):
+        # Solo se ejecutan scripts del propio sitio: un script inyectado (XSS) no corre ni puede enviar datos afuera.
+        respuesta.headers["Content-Security-Policy"] = CSP
     if ruta.startswith("/api/"):
         respuesta.headers["Cache-Control"] = "no-store"          # datos personales: nunca en caché
     elif ruta.startswith("/assets/"):

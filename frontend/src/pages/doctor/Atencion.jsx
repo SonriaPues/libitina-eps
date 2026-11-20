@@ -32,6 +32,8 @@ export default function Atencion() {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [motivoCanc, setMotivoCanc] = useState('');
   const h = historia.datos;
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
@@ -64,8 +66,24 @@ export default function Atencion() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex flex-col gap-1"><span className="antetitulo">{c.especialidad} · {fechaLarga(c.fecha)}, {hora12(c.hora)}</span><h1 className="text-3xl font-extrabold">{c.paciente}</h1></div>
           <span className="flex items-center gap-3"><EstadoCita estado={c.estado} />
-            {c.estado === 'confirmada' && <button type="button" disabled={enviando} onClick={() => accion(() => citasApi.noAsistio(id), 'Marcamos la inasistencia.', cita.recargar)} className="btn border-[1.5px] border-dorado-400 px-4 py-2 text-dorado-800">No asistió</button>}</span>
+            {c.estado === 'confirmada' && <button type="button" disabled={enviando} onClick={() => accion(() => citasApi.noAsistio(id), 'Marcamos la inasistencia.', cita.recargar)} className="btn border-[1.5px] border-dorado-400 px-4 py-2 text-dorado-800">No asistió</button>}
+            {c.puede_cancelar && !cancelando && <button type="button" onClick={() => { setCancelando(true); setError(''); }} className="btn border-[1.5px] border-azul-200 px-4 py-2 text-azul-800">Cancelar cita</button>}</span>
         </div>
+        {cancelando && (
+          <div className="tarjeta flex flex-col gap-3 p-5">
+            <h2 className="text-lg font-extrabold">Cancelar la cita de {c.paciente}</h2>
+            <span className="text-sm text-azul-600">Le avisaremos al paciente por correo con el motivo. Si la cita usaba una remisión, queda libre para volver a agendar.</span>
+            <Campo etiqueta="Motivo de la cancelación">{(cid) => <textarea id={cid} className="campo h-auto min-h-[80px] py-3" maxLength={500} value={motivoCanc} onChange={(e) => setMotivoCanc(e.target.value)} placeholder="Ej.: calamidad doméstica; por favor reagende con otro profesional." />}</Campo>
+            <div className="flex gap-2 self-end">
+              <button type="button" onClick={() => setCancelando(false)} className="btn border-[1.5px] border-azul-200 px-4 py-2">Volver</button>
+              <button type="button" disabled={enviando} className="btn-primario px-5"
+                onClick={() => (motivoCanc.trim().length < 5 ? setError('Escribe el motivo (mínimo 5 caracteres).')
+                  : accion(() => citasApi.cancelar(id, motivoCanc.trim()), 'Cita cancelada. Le avisamos al paciente.', () => { setCancelando(false); cita.recargar(); }))}>
+                Confirmar cancelación</button>
+            </div>
+          </div>
+        )}
+        {c.estado === 'cancelada' && c.motivo_cancelacion && <Alerta tipo="aviso">Motivo de la cancelación: {c.motivo_cancelacion}</Alerta>}
         {error && <Alerta>{error}</Alerta>}
         {aviso && <Alerta tipo="exito">{aviso}</Alerta>}
 

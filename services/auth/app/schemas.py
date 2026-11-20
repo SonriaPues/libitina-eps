@@ -4,9 +4,26 @@ from typing import Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
+# Palabras que aparecen en las listas de contraseñas filtradas más usadas, o que un atacante probaría primero
+# contra esta EPS. Se rechazan solas o con números y símbolos al final (Password1, Libitina2026!, Qwerty123).
+PALABRAS_COMUNES = {
+    "password", "passw0rd", "contraseña", "contrasena", "clave", "qwerty", "qwertyuiop", "asdfgh", "asdfghjk", "zxcvbn",
+    "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh", "admin", "administrador", "root", "usuario", "user",
+    "welcome", "bienvenido", "bienvenida", "hola", "holamundo", "letmein", "iloveyou", "teamo", "test", "prueba",
+    "libitina", "libitinaeps", "eps", "salud", "colombia", "bogota", "medellin", "cali", "dragon", "monkey",
+    "football", "futbol", "baseball", "superman", "batman", "princess", "sunshine", "master", "shadow", "michael",
+    "jesus", "dios", "familia", "amor", "secreto", "secret", "cambiame", "changeme", "default", "temporal",
+}
+SECUENCIAS = ("12345678", "87654321", "11111111", "00000000", "123456789", "1234567890", "qwerty", "asdfgh")
+
+
 def validar_clave(v: str) -> str:
     if len(v) < 8 or not re.search(r"[A-Z]", v) or not re.search(r"\d", v):
         raise ValueError("La contraseña debe tener mínimo 8 caracteres, una mayúscula y un número.")
+    baja = v.lower()
+    raiz = re.sub(r"[\d\W_]+$", "", baja)           # Password123! → password
+    if raiz in PALABRAS_COMUNES or any(s in baja for s in SECUENCIAS) or len(set(baja)) <= 3:
+        raise ValueError("Esa contraseña es demasiado común y fácil de adivinar. Usa una combinación propia.")
     return v
 
 

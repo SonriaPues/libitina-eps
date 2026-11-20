@@ -207,6 +207,31 @@ ver("estirar o dejar igual un turno", c.put(f"{A}/citas/admin/turnos/{turno_g['i
     "dia_semana": dia_sem, "hora_inicio": turno_g["hora_inicio"], "hora_fin": turno_g["hora_fin"]}), 200)
 ver("cancelar la cita de la hija", c.post(f"{A}/citas/{cita_h['id']}/cancelar", headers=H, json={"motivo": "Ya no la necesita"}), 200)
 
+print("— Sin cruces de horario, elección del profesional y cancelación por el doctor")
+otro_dia = next(d for d in dispo if d["fecha"] not in (fecha_g, dia_h["fecha"]) and any(h["doctor_id"] == doc_g["usuario_id"] for h in d["horarios"]))
+slot_k = next(h for h in otro_dia["horarios"] if h["doctor_id"] == doc_g["usuario_id"])
+cita_k = ver("agendar eligiendo el profesional", c.post(f"{A}/citas", headers=H, json={
+    "afiliado_id": hija, "especialidad_codigo": "medicina_general", "doctor_id": doc_g["usuario_id"],
+    "punto_atencion_id": slot_k["punto_atencion_id"], "fecha": otro_dia["fecha"], "hora": slot_k["hora"], "motivo": "Control anual"}), 201).json()
+comprobar("la cita quedó con el profesional elegido", cita_k.get("doctor_id") in (doc_g["usuario_id"], None) and "Gabriela" in (cita_k.get("doctor") or ""), cita_k.get("doctor"))
+d_k = next(d for d in c.get(f"{A}/citas/disponibilidad", headers=H, params={"especialidad": "medicina_general"}).json() if d["fecha"] == otro_dia["fecha"])
+comprobar("ese horario ya no aparece libre para el profesional", not any(h["doctor_id"] == doc_g["usuario_id"] and h["hora"] == slot_k["hora"] for h in d_k["horarios"]))
+fila = (f"SELECT '{{p}}', paciente_nombre, paciente_documento, {{doc}}, agendada_por_rol, agendada_por_id, 'confirmada', fecha, "
+        f"hora_inicio + interval '{{m}} minutes', hora_fin + interval '{{m}} minutes', punto_atencion_id, motivo, '{{esp}}', especialidad, 0, "
+        f"titular_usuario_id FROM citas WHERE id = '{cita_g['id']}'")
+insertar = ("INSERT INTO citas (afiliado_id, paciente_nombre, paciente_documento, doctor_id, agendada_por_rol, agendada_por_id, estado, fecha, "
+            "hora_inicio, hora_fin, punto_atencion_id, motivo, especialidad_codigo, especialidad, cuota_moderadora, titular_usuario_id) ")
+r1 = sql("E2E_SQL_CITAS", insertar + fila.format(p=hija, doc="doctor_id", m=10, esp="prueba_cruce"))
+if r1 is not None:
+    comprobar("la base rechaza al doctor con citas cruzadas (inicio 10 min después)", "ex_cita_doctor_sin_cruce" in r1, r1[:200])
+    r2 = sql("E2E_SQL_CITAS", insertar + fila.format(p=titular, doc=f"'{doc_n['usuario_id']}'", m=0, esp="prueba_cruce"))
+    comprobar("la base rechaza al paciente con dos citas a la vez", "ex_cita_paciente_sin_cruce" in r2, r2[:200])
+ver("un doctor no cancela citas de otro (debe fallar)", c.post(f"{A}/citas/{cita_k['id']}/cancelar", headers=HN, json={"motivo": "Prueba de permisos"}), 404)
+ver("cancelar sin motivo (debe fallar)", c.post(f"{A}/citas/{cita_k['id']}/cancelar", headers=HG, json={"motivo": ""}), 422)
+cancelada = ver("el doctor cancela su cita", c.post(f"{A}/citas/{cita_k['id']}/cancelar", headers=HG, json={"motivo": "Calamidad doméstica"}), 200).json()
+comprobar("queda el motivo y quién canceló", cancelada["estado"] == "cancelada" and cancelada["motivo_cancelacion"].startswith("El profesional"), cancelada.get("motivo_cancelacion"))
+ver("cancelar una cita ya cancelada (debe fallar)", c.post(f"{A}/citas/{cita_k['id']}/cancelar", headers=HG, json={"motivo": "Otra vez"}), 409)
+
 print("— El doctor atiende")
 if fecha_g != ahora().date().isoformat():
     movida = sql("E2E_SQL_CITAS", f"UPDATE citas SET fecha = (now() AT TIME ZONE 'America/Bogota')::date WHERE id = '{cita_g['id']}'")
@@ -375,9 +400,21 @@ ver("retirar una solicitud ya aprobada (debe fallar)", c.post(f"{A}/citas/doctor
 print("— Cambiar contraseña")
 ver("contraseña actual equivocada (debe fallar)", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Otra1234", "clave_nueva": "Nueva2026"}), 422)
 ver("contraseña nueva débil (debe fallar)", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Marta1234", "clave_nueva": "corta"}), 422)
+ver("contraseña común (debe fallar)", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Marta1234", "clave_nueva": "Password1"}), 422)
 ver("cambiar contraseña", c.post(f"{A}/auth/cambiar-clave", headers=H, json={"clave_actual": "Marta1234", "clave_nueva": "Nueva2026"}), 204)
 ver("entra con la nueva", c.post(f"{A}/auth/login", json={"correo": CORREO, "clave": "Nueva2026"}), 200)
 ver("la anterior ya no sirve", c.post(f"{A}/auth/login", json={"correo": CORREO, "clave": "Marta1234"}), 401)
+
+print("— Cerrar sesión en todos los dispositivos")
+s1 = ver("sesión en un equipo", c.post(f"{A}/auth/login", json={"correo": CORREO, "clave": "Nueva2026"}), 200).json()
+s2 = ver("sesión en otro equipo", c.post(f"{A}/auth/login", json={"correo": CORREO, "clave": "Nueva2026"}), 200).json()
+ver("cerrar todas las sesiones", c.post(f"{A}/auth/cerrar-sesiones", headers={"Authorization": f"Bearer {s1['access_token']}"}), 204)
+ver("el otro equipo ya no renueva su sesión", c.post(f"{A}/auth/refresh", json={"refresh_token": s2["refresh_token"]}), 401)
+
+print("— Cabeceras de seguridad")
+pagina = c.get(f"{BASE}/")
+comprobar("la página trae Content-Security-Policy", "script-src 'self'" in pagina.headers.get("content-security-policy", ""), pagina.headers.get("content-security-policy"))
+comprobar("la API no se cachea", c.get(f"{A}/health").headers.get("cache-control") == "no-store")
 
 print("— Inactivar un doctor")
 ver("inactivar", c.put(f"{A}/prestadores/admin/doctores/{doc_n['id']}", headers=HA, json={"estado": "inactivo"}), 200)

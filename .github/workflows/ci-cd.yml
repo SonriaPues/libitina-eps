@@ -28,6 +28,23 @@ jobs:
       - run: npm run build
         env: { VITE_USE_MOCK: "false", VITE_API_URL: /api/v1 }
 
+  dependencias:
+    name: Dependencias sin vulnerabilidades conocidas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Microservicios (pip-audit)
+        run: |
+          pip install -q pip-audit
+          for f in services/*/requirements.txt; do echo "== $f"; pip-audit -r "$f" --progress-spinner off; done
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Frontend (npm audit, severidad alta o crítica)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
   sistema:
     name: Sistema completo (prueba de punta a punta)
     runs-on: ubuntu-latest
@@ -77,7 +94,7 @@ jobs:
 
   desplegar:
     name: Desplegar en Azure
-    needs: [front, sistema]
+    needs: [front, dependencias, sistema]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: produccion

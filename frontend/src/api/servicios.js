@@ -12,6 +12,7 @@ export const authApi = {
   confirmarRecuperacion: m(mock.ok, (token, clave) => api('/auth/recuperar/confirmar', { method: 'POST', body: { token, clave } })),
   verificarCorreo: m(mock.ok, (token) => api(`/auth/verificar-email/${encodeURIComponent(token)}`)),
   reenviarVerificacion: m(mock.ok, () => api('/auth/verificar-email', { method: 'POST', auth: true })),
+  cerrarSesiones: m(mock.ok, () => api('/auth/cerrar-sesiones', { method: 'POST', auth: true })),
   cambiarClave: m(mock.ok, (actual, nueva) => api('/auth/cambiar-clave', { method: 'POST', body: { clave_actual: actual, clave_nueva: nueva }, auth: true })),
 };
 
@@ -56,7 +57,7 @@ export const redApi = real({
 
 export const citasApi = real({
   especialidadesConAgenda: () => api('/citas/especialidades'),
-  disponibilidad: (especialidad, puntoId, desde) => api('/citas/disponibilidad', { auth: true, params: { especialidad, punto_atencion_id: puntoId, desde, dias: 31, resumen: true } }),
+  disponibilidad: (especialidad, puntoId, desde) => api('/citas/disponibilidad', { auth: true, params: { especialidad, punto_atencion_id: puntoId, desde, dias: 31 } }),
   agendar: (d) => api('/citas', { method: 'POST', body: d, auth: true }),
   mias: () => api('/citas/mias', { auth: true }),
   cancelar: (id, motivo) => api(`/citas/${id}/cancelar`, { method: 'POST', body: { motivo }, auth: true }),

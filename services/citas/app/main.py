@@ -12,7 +12,7 @@ activas de la misma especialidad para un paciente.
 import logging
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Query
-from psycopg.errors import UniqueViolation
+from psycopg.errors import ExclusionViolation, UniqueViolation
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -76,6 +76,13 @@ def avisar(evento: str, c: Cita, doctor: Doctor, **extra) -> None:
               cuota=pesos, **extra)
 
 
+def paciente_libre(db: Session, afiliado_id, dia, h, fin, excluir=None) -> None:
+    otra = agenda.cita_que_cruza(db, dia, h, fin, afiliado_id=afiliado_id, excluir=excluir)
+    if otra:
+        raise HTTPException(409, f"El paciente ya tiene una cita de {otra.especialidad} a las {hora_corta(otra.hora_inicio)} "
+                                 "que se cruza con ese horario.")
+
+
 def paciente_del_grupo(grupo: dict, afiliado_id) -> dict:
     personas = [grupo["titular"], *grupo["beneficiarios"]]
     p = next((x for x in personas if x["id"] == str(afiliado_id)), None)
@@ -87,6 +94,10 @@ def paciente_del_grupo(grupo: dict, afiliado_id) -> dict:
 
 
 def error_de_unicidad(e: IntegrityError) -> HTTPException:
+    if isinstance(e.orig, ExclusionViolation) and "paciente" in str(e.orig):
+        return HTTPException(409, "El paciente ya tiene otra cita que se cruza con ese horario.")
+    if isinstance(e.orig, ExclusionViolation):
+        return HTTPException(409, "El profesional ya tiene una cita en ese horario. Elige otra hora u otro profesional.")
     if isinstance(e.orig, UniqueViolation) and "uq_cita_paciente_especialidad" in str(e.orig):
         return HTTPException(409, "El paciente ya tiene una cita activa de esa especialidad. Cancélala o reagéndala.")
     if isinstance(e.orig, UniqueViolation):
@@ -140,6 +151,7 @@ def agendar(datos: AgendarIn, u: dict = Depends(solo_afiliado), db: Session = De
         remision = clientes.remision_vigente(datos.afiliado_id, esp["codigo"])
         if not remision:
             raise HTTPException(422, f"Para {esp['nombre']} necesitas una remisión vigente de medicina general.")
+    paciente_libre(db, datos.afiliado_id, datos.fecha, datos.hora, hora_fin)
 
     titular = grupo["titular"]
     c = Cita(afiliado_id=datos.afiliado_id, paciente_nombre=f"{paciente['nombres']} {paciente['apellidos']}",
@@ -180,17 +192,22 @@ def cita_cancelable(db: Session, cita_id: str, u: dict) -> Cita:
     c = obtener(db, Cita, cita_id, "Cita no encontrada.")
     if u["rol"] == "afiliado" and str(c.titular_usuario_id) != u["sub"]:
         raise HTTPException(404, "Cita no encontrada.")
+    if u["rol"] == "doctor" and str(c.doctor_id) != u["sub"]:
+        raise HTTPException(404, "Cita no encontrada.")
     if c.estado not in ACTIVAS:
         raise HTTPException(409, "Esta cita ya no está activa.")
-    if u["rol"] == "afiliado" and inicio(c) - ahora() < timedelta(hours=config.HORAS_MINIMAS_PARA_CANCELAR):
+    if u["rol"] in ("afiliado", "doctor") and inicio(c) - ahora() < timedelta(hours=config.HORAS_MINIMAS_PARA_CANCELAR):
         raise HTTPException(422, f"Las citas se cancelan o reagendan con al menos {config.HORAS_MINIMAS_PARA_CANCELAR} horas de anticipación.")
     return c
 
 
 @app.post("/citas/{cita_id}/cancelar", tags=["Mis citas"])
-def cancelar(cita_id: str, datos: CancelarIn, u: dict = Depends(requiere_rol("afiliado", "admin")), db: Session = Depends(get_db)):
+def cancelar(cita_id: str, datos: CancelarIn, u: dict = Depends(requiere_rol("afiliado", "doctor", "admin")),
+             db: Session = Depends(get_db)):
+    """Cancelan el afiliado (sus citas y las de su grupo) y el doctor (las suyas), hasta 2 horas antes; el administrador, siempre."""
     c = cita_cancelable(db, cita_id, u)
-    c.estado, c.motivo_cancelacion, c.cancelada_por = "cancelada", datos.motivo.strip(), u["sub"]
+    quien = {"doctor": "El profesional canceló la cita. ", "admin": "Libitina EPS canceló la cita. "}.get(u["rol"], "")
+    c.estado, c.motivo_cancelacion, c.cancelada_por = "cancelada", f"{quien}{datos.motivo.strip()}", u["sub"]
     db.commit()
     if c.remision_id:
         clientes.liberar_remision(c.remision_id)
@@ -203,10 +220,11 @@ def cancelar(cita_id: str, datos: CancelarIn, u: dict = Depends(requiere_rol("af
 def reagendar(cita_id: str, datos: ReagendarIn, u: dict = Depends(solo_afiliado), db: Session = Depends(get_db)):
     anterior = cita_cancelable(db, cita_id, u)
     d = (obtener(db, Doctor, datos.doctor_id, "Profesional no encontrado.") if datos.doctor_id
-         else agenda.elegir_doctor(db, anterior.especialidad_codigo, datos.punto_atencion_id, datos.fecha, datos.hora))
+         else agenda.elegir_doctor(db, anterior.especialidad_codigo, datos.punto_atencion_id, datos.fecha, datos.hora, anterior.id))
     if d.especialidad_codigo != anterior.especialidad_codigo:
         raise HTTPException(422, "Solo puedes reagendar con un profesional de la misma especialidad.")
-    hora_fin = agenda.validar_horario(db, d, datos.punto_atencion_id, datos.fecha, datos.hora)
+    hora_fin = agenda.validar_horario(db, d, datos.punto_atencion_id, datos.fecha, datos.hora, excluir=anterior.id)
+    paciente_libre(db, anterior.afiliado_id, datos.fecha, datos.hora, hora_fin, excluir=anterior.id)
     anterior.estado = "reagendada"            # libera el horario y el cupo de la especialidad
     db.flush()
     nueva = Cita(**{k: getattr(anterior, k) for k in (
