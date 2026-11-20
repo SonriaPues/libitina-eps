@@ -139,6 +139,7 @@ def disponibilidad(especialidad: str = Query(max_length=40), punto_atencion_id: 
 def agendar(datos: AgendarIn, u: dict = Depends(solo_afiliado), db: Session = Depends(get_db)):
     grupo = clientes.grupo_de_usuario(u["sub"])
     paciente = paciente_del_grupo(grupo, datos.afiliado_id)
+    agenda.cerrar_vencidas(db, datos.afiliado_id)
     esp = clientes.especialidad(datos.especialidad_codigo)
     d = (obtener(db, Doctor, datos.doctor_id, "Profesional no encontrado.") if datos.doctor_id
          else agenda.elegir_doctor(db, esp["codigo"], datos.punto_atencion_id, datos.fecha, datos.hora))
@@ -180,6 +181,8 @@ def agendar(datos: AgendarIn, u: dict = Depends(solo_afiliado), db: Session = De
 
 @app.get("/citas/mias", tags=["Mis citas"])
 def mis_citas(u: dict = Depends(solo_afiliado), db: Session = Depends(get_db)):
+    if agenda.cerrar_vencidas(db):
+        db.commit()
     citas = list(db.scalars(select(Cita).where(Cita.titular_usuario_id == u["sub"], Cita.estado != "reagendada")
                             .order_by(Cita.fecha.desc(), Cita.hora_inicio.desc()).limit(100)))
     todas = con_doctores(db, citas)

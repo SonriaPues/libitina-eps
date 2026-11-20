@@ -4,6 +4,7 @@ Tareas:
 - citas.doctor_actualizado   evento de Red de Prestadores: actualiza la copia local del doctor.
 - citas.sincronizar_doctores cada 10 min: reconcilia la copia completa (por si se perdió un evento).
 - citas.enviar_recordatorios cada 15 min: avisa por correo las citas del día siguiente.
+- citas.cerrar_vencidas       cada hora: las citas que pasaron su día sin atenderse quedan como «no_asistio».
 """
 import logging
 from datetime import timedelta
@@ -11,7 +12,7 @@ from celery import Celery
 from celery.signals import worker_ready
 from sqlalchemy import select
 from . import clientes, config
-from .agenda import guardar_doctor
+from .agenda import cerrar_vencidas as cerrar, guardar_doctor
 from .db import SessionLocal, engine
 from .internos import llamar
 from .migrar import aplicar
@@ -26,7 +27,17 @@ app.conf.broker_connection_retry_on_startup = True
 app.conf.beat_schedule = {
     "sincronizar-doctores": {"task": "citas.sincronizar_doctores", "schedule": 600.0},
     "recordatorios": {"task": "citas.enviar_recordatorios", "schedule": 900.0},
+    "cerrar-vencidas": {"task": "citas.cerrar_vencidas", "schedule": 3600.0},
 }
+
+
+@app.task(name="citas.cerrar_vencidas")
+def cerrar_vencidas():
+    with SessionLocal() as db:
+        n = cerrar(db)
+        db.commit()
+    if n:
+        log.info("Citas vencidas marcadas como no asistió: %s", n)
 
 
 @app.task(name="citas.doctor_actualizado")
@@ -69,3 +80,4 @@ def enviar_recordatorios():
 def al_iniciar(**_):
     aplicar(engine)                       # por si el worker arranca antes que la API
     sincronizar_doctores.delay()
+    cerrar_vencidas.delay()

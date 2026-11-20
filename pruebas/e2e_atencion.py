@@ -231,6 +231,17 @@ ver("cancelar sin motivo (debe fallar)", c.post(f"{A}/citas/{cita_k['id']}/cance
 cancelada = ver("el doctor cancela su cita", c.post(f"{A}/citas/{cita_k['id']}/cancelar", headers=HG, json={"motivo": "Calamidad doméstica"}), 200).json()
 comprobar("queda el motivo y quién canceló", cancelada["estado"] == "cancelada" and cancelada["motivo_cancelacion"].startswith("El profesional"), cancelada.get("motivo_cancelacion"))
 ver("cancelar una cita ya cancelada (debe fallar)", c.post(f"{A}/citas/{cita_k['id']}/cancelar", headers=HG, json={"motivo": "Otra vez"}), 409)
+if os.getenv("E2E_SQL_CITAS"):
+    vieja = ver("agendar una cita que luego quedará vencida", c.post(f"{A}/citas", headers=H, json={
+        "afiliado_id": hija, "especialidad_codigo": "medicina_general", "doctor_id": doc_g["usuario_id"],
+        "punto_atencion_id": slot_k["punto_atencion_id"], "fecha": otro_dia["fecha"], "hora": slot_k["hora"], "motivo": "Control anual"}), 201).json()
+    sql("E2E_SQL_CITAS", f"UPDATE citas SET fecha = fecha - 40 WHERE id = '{vieja['id']}'")   # nadie la atendió ni la cerró
+    nueva_k = ver("una cita vencida sin cerrar no bloquea una nueva de la misma especialidad", c.post(f"{A}/citas", headers=H, json={
+        "afiliado_id": hija, "especialidad_codigo": "medicina_general", "doctor_id": doc_g["usuario_id"],
+        "punto_atencion_id": slot_k["punto_atencion_id"], "fecha": otro_dia["fecha"], "hora": slot_k["hora"], "motivo": "Control anual"}), 201).json()
+    hist = c.get(f"{A}/citas/mias", headers=H).json()["historial"]
+    comprobar("la cita vencida quedó como «no asistió»", any(x["id"] == vieja["id"] and x["estado"] == "no_asistio" for x in hist))
+    ver("cancelar la nueva", c.post(f"{A}/citas/{nueva_k['id']}/cancelar", headers=H, json={"motivo": "Fin de la prueba"}), 200)
 
 print("— El doctor atiende")
 if fecha_g != ahora().date().isoformat():

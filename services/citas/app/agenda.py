@@ -1,7 +1,7 @@
 """Reglas de la agenda: turnos, bloqueos y horarios disponibles."""
 from datetime import date, datetime, time, timedelta
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from . import config
@@ -19,6 +19,16 @@ def horas_del_turno(t: Turno, duracion: int):
     while sumar_minutos(h, duracion) <= t.hora_fin and sumar_minutos(h, duracion) > h:
         yield h
         h = sumar_minutos(h, duracion)
+
+
+def cerrar_vencidas(db: Session, afiliado_id=None) -> int:
+    """Una cita que siguió confirmada después de su día (sin consulta ni inasistencia marcadas) pasa a «no_asistio».
+    Si no, quedaría activa para siempre y bloquearía una nueva cita de la misma especialidad para ese paciente.
+    El doctor tiene todo el día de la cita para registrar la consulta."""
+    q = update(Cita).where(Cita.estado.in_(ACTIVAS), Cita.fecha < hoy()).values(estado="no_asistio")
+    if afiliado_id:
+        q = q.where(Cita.afiliado_id == afiliado_id)
+    return db.execute(q).rowcount
 
 
 def rango(dia: date, ini: time, fin: time) -> tuple[datetime, datetime]:
