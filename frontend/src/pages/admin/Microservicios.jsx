@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BASE } from '../../api/client.js';
-import { CAPAS, CATEGORIAS, ENLACES, FLUJOS, NODOS } from '../../data/arquitectura.js';
+import { CAPAS, CATEGORIAS, DETALLE_ENLACES, ENLACES, FLUJOS, NODOS } from '../../data/arquitectura.js';
 
 // Topología de microservicios (solo administrador, sin enlace desde ningún menú).
 // Estado real: consulta /api/v1/health cada 15 s. Los recorridos de la consola son simulados.
@@ -13,6 +13,7 @@ export default function Microservicios() {
   const [pos, setPos] = useState(() => Object.fromEntries(NODOS.map((n) => [n.id, { x: n.x, y: n.y }])));
   const [vista, setVista] = useState({ x: 0, y: 0, k: 1 });
   const [foco, setFoco] = useState(null);
+  const [conexion, setConexion] = useState(null);      // enlace elegido: muestra por qué existe y qué procesos lo usan
   const [ocultas, setOcultas] = useState(new Set());
   const [salud, setSalud] = useState({});
   const [activo, setActivo] = useState(null);           // enlace iluminado por la simulación
@@ -50,7 +51,7 @@ export default function Microservicios() {
 
   useEffect(() => { consola.current?.scrollTo(0, consola.current.scrollHeight); }, [log]);
   useEffect(() => {
-    const tecla = (e) => { if (e.key === 'Escape') setFoco(null); };
+    const tecla = (e) => { if (e.key === 'Escape') { setFoco(null); setConexion(null); } };
     window.addEventListener('keydown', tecla);
     return () => window.removeEventListener('keydown', tecla);
   }, []);
@@ -104,7 +105,7 @@ export default function Microservicios() {
   };
   const soltar = () => {
     const a = arrastre.current;
-    if (a && !a.movido) setFoco(a.fondo ? null : (f) => (f === a.id ? null : a.id));
+    if (a && !a.movido) { setFoco(a.fondo ? null : (f) => (f === a.id ? null : a.id)); setConexion(null); }
     arrastre.current = null;
   };
   const rueda = (e) => {
@@ -129,7 +130,7 @@ export default function Microservicios() {
     return s;
   }, [foco]);
   const nodoFoco = NODOS.find((n) => n.id === foco);
-  const enActivo = activo ? activo.split('>') : [];
+  const enActivo = activo ? activo.split('>') : conexion ? conexion.split('>') : [];
   const nombre = (id) => NODOS.find((n) => n.id === id)?.nombre ?? id;
   const resumen = Object.values(salud).filter((v) => v === 'ok').length;
 
@@ -174,20 +175,26 @@ export default function Microservicios() {
             <g transform={`translate(${vista.x} ${vista.y}) scale(${vista.k})`}>
               {visibles.map((l) => {
                 const a = pos[l.de], b = pos[l.a];
-                const encendido = activo === l.id;
-                const apagado = (vecinos && !(l.de === foco || l.a === foco)) || (activo && !encendido);
+                const encendido = activo === l.id || conexion === l.id;
+                const apagado = (vecinos && !(l.de === foco || l.a === foco)) || ((activo || conexion) && !encendido);
                 const mx = (a.x + b.x) / 2;
+                const d = `M${a.x} ${a.y} C${mx} ${a.y} ${mx} ${b.y} ${b.x} ${b.y}`;
                 return (
-                  <path key={l.id} d={`M${a.x} ${a.y} C${mx} ${a.y} ${mx} ${b.y} ${b.x} ${b.y}`} fill="none"
+                  <g key={l.id}>
+                  <path d={d} fill="none" stroke="transparent" strokeWidth="12" className="cursor-pointer"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => { setConexion(l.id); if (!vecinos || !(l.de === foco || l.a === foco)) setFoco(l.de); }} />
+                  <path d={d} fill="none" pointerEvents="none"
                     stroke={CATEGORIAS[l.tipo].color} strokeWidth={encendido ? 3.2 : 1.2} markerEnd="url(#flecha)"
                     strokeDasharray={l.tipo === 'cola' || l.tipo === 'externo' ? '5 4' : undefined}
                     opacity={encendido ? 1 : apagado ? 0.08 : 0.55} className={encendido ? 'flujo-activo' : undefined} />
+                  </g>
                 );
               })}
               {NODOS.map((n) => {
                 const p = pos[n.id];
                 const est = estadoDe(n);
-                const apagado = (vecinos && !vecinos.has(n.id)) || (activo && !enActivo.includes(n.id));
+                const apagado = (vecinos && !vecinos.has(n.id)) || ((activo || conexion) && !enActivo.includes(n.id));
                 const resaltado = foco === n.id || enActivo.includes(n.id);
                 return (
                   <g key={n.id} transform={`translate(${p.x - NW / 2} ${p.y - NH / 2})`} opacity={apagado ? 0.25 : 1}
@@ -204,7 +211,7 @@ export default function Microservicios() {
             </g>
           </svg>
           <div className="pointer-events-none absolute bottom-2 left-3 font-mono text-[11px] text-[#6B7A8C]">
-            Arrastra para mover · rueda para zoom · clic en un nodo para enfocarlo · Esc o clic en vacío para limpiar · zoom {Math.round(vista.k * 100)}%
+            Arrastra para mover · rueda para zoom · clic en un nodo o en una línea · Esc o clic en vacío para limpiar · zoom {Math.round(vista.k * 100)}%
           </div>
           <button type="button" onClick={() => { setVista({ x: 0, y: 0, k: 1 }); setPos(Object.fromEntries(NODOS.map((n) => [n.id, { x: n.x, y: n.y }]))); }}
             className="absolute right-3 top-3 rounded border border-white/15 bg-[#0B1622] px-2 py-1 text-[11.5px] hover:bg-white/10">Restablecer vista</button>
@@ -226,14 +233,29 @@ export default function Microservicios() {
               {nodoFoco.redes.length > 0 && <Bloque titulo="Redes Docker"><p className="font-mono">{nodoFoco.redes.join(' · ')}</p></Bloque>}
               <Bloque titulo="Capas de seguridad"><ul className="list-disc space-y-1 pl-4">{nodoFoco.seguridad.map((s) => <li key={s}>{s}</li>)}</ul></Bloque>
               {nodoFoco.tablas.length > 0 && <Bloque titulo="Esquemas y tablas"><ul className="space-y-1 font-mono text-[11.5px]">{nodoFoco.tablas.map((s) => <li key={s}>{s}</li>)}</ul></Bloque>}
-              <Bloque titulo="Conexiones directas">
+              <Bloque titulo="Conexiones directas · clic para ver por qué">
                 <ul className="space-y-1 font-mono text-[11.5px]">
-                  {ENLACES.filter((l) => l.de === foco || l.a === foco).map((l) => (
-                    <li key={l.id} className="flex items-center gap-2">
-                      <span className="h-[3px] w-3 shrink-0 rounded" style={{ background: CATEGORIAS[l.tipo].color }} />
-                      {l.de === foco ? `→ ${nombre(l.a)}` : `← ${nombre(l.de)}`}
-                    </li>
-                  ))}
+                  {ENLACES.filter((l) => l.de === foco || l.a === foco).map((l) => {
+                    const abierta = conexion === l.id;
+                    const det = DETALLE_ENLACES[l.id];
+                    return (
+                      <li key={l.id}>
+                        <button type="button" onClick={() => setConexion(abierta ? null : l.id)}
+                          className={`flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-white/10 ${abierta ? 'bg-white/10 text-white' : ''}`}>
+                          <span className="h-[3px] w-3 shrink-0 rounded" style={{ background: CATEGORIAS[l.tipo].color }} />
+                          <span className="flex-1">{l.de === foco ? `→ ${nombre(l.a)}` : `← ${nombre(l.de)}`}</span>
+                          <span className="text-[#6B7A8C]">{abierta ? '−' : '+'}</span>
+                        </button>
+                        {abierta && det && (
+                          <div className="mb-2 ml-5 mt-1 space-y-2 border-l border-white/15 pl-3 font-sans text-[12.5px]">
+                            <p className="font-mono text-[11px] text-[#8FA3B8]">{nombre(l.de)} → {nombre(l.a)} · {CATEGORIAS[l.tipo].nombre}</p>
+                            <p><span className="text-[#8FA3B8]">Por qué: </span>{det.por}</p>
+                            <ul className="list-disc space-y-1 pl-4 text-[#D6E2EE]">{det.procesos.map((x) => <li key={x}>{x}</li>)}</ul>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </Bloque>
             </div>
@@ -241,6 +263,7 @@ export default function Microservicios() {
             <div className="space-y-3 text-[#8FA3B8]">
               <h2 className="font-display text-[16px] font-bold text-white">Detalle del nodo</h2>
               <p>Haz clic en un nodo para ver su capa, puerto, redes, capas de seguridad, tablas y conexiones.</p>
+              <p>Haz clic en una línea, o en una conexión del panel, para ver por qué existe y qué procesos la usan.</p>
             </div>
           )}
           <div className="mt-5 space-y-2 border-t border-white/10 pt-4">
